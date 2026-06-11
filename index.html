@@ -161,6 +161,17 @@
         </div>
 
         <div class="field">
+          <label data-i18n="bundle_label">Configuration bundle (.zip)</label>
+          <div class="desc" data-i18n="bundle_desc">Export everything to one .zip to hand off, or import one to configure this browser in a single step.</div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;">
+            <button type="button" class="btn" id="exportBundleBtn" data-i18n="btn_export">⬇ Export bundle</button>
+            <button type="button" class="btn" id="importBundleBtn" data-i18n="btn_import">⬆ Import bundle</button>
+            <input type="file" id="importBundleInput" accept=".zip,application/zip" style="display:none" />
+          </div>
+          <div id="bundleStatus" style="font-size:12px;color:var(--muted);margin-top:6px;"></div>
+        </div>
+
+        <div class="field">
           <label data-i18n="apikey_label">Anthropic API key</label>
           <div class="desc" data-i18n-html="apikey_desc">Stored only in your browser's localStorage — never committed to the repo. Starts with <code class="k">sk-ant-</code>.</div>
           <input type="password" id="set-apiKey" placeholder="sk-ant-…" autocomplete="off" />
@@ -268,6 +279,16 @@
       warn: "<strong>Heads up:</strong> this app calls the Claude API directly from your browser, so the key lives client-side. Anyone using this page tab can read it via dev tools. Use a key you can rotate, and never hard-code it into the published HTML — Anthropic scans public GitHub and auto-revokes leaked keys.",
       btn_cancel: "Cancel",
       btn_save: "Save",
+      bundle_label: "Configuration bundle (.zip)",
+      bundle_desc: "Export everything (API key, webhook, instructions, knowledge) to a single .zip to hand off — or import one to configure this browser in one step. You can also drop raw .pdf/.docx/.txt files into the zip; they're imported as knowledge. ⚠ The .zip contains your API key in plain text — treat it like a password.",
+      btn_export: "⬇ Export bundle",
+      btn_import: "⬆ Import bundle",
+      exporting: "Building bundle…",
+      export_done: "Exported ✓ — check your downloads.",
+      export_fail: (msg) => "Export failed: " + msg,
+      importing: "Importing…",
+      import_done: (n) => n > 0 ? `Imported ✓ — settings applied, ${n} knowledge file(s).` : "Imported ✓ — settings applied.",
+      import_fail: (msg) => "Import failed: " + msg,
       who_you: "You",
       send_to_make: "→ Send to make.com",
       sent_to_make: "✓ Sent to make.com",
@@ -326,6 +347,16 @@
       warn: "<strong>Hinweis:</strong> Diese App ruft die Claude-API direkt aus deinem Browser auf, der Schlüssel liegt also clientseitig. Wer diesen Browser-Tab nutzt, kann ihn über die Entwicklertools auslesen. Verwende einen Schlüssel, den du rotieren kannst, und schreibe ihn niemals fest ins veröffentlichte HTML – Anthropic scannt öffentliches GitHub und sperrt geleakte Schlüssel automatisch.",
       btn_cancel: "Abbrechen",
       btn_save: "Speichern",
+      bundle_label: "Konfigurationspaket (.zip)",
+      bundle_desc: "Exportiere alles (API-Schlüssel, Webhook, Anweisungen, Wissen) in eine einzige .zip zum Weitergeben – oder importiere eine, um diesen Browser in einem Schritt einzurichten. Du kannst auch rohe .pdf/.docx/.txt-Dateien in die Zip legen; sie werden als Wissen importiert. ⚠ Die .zip enthält deinen API-Schlüssel im Klartext – behandle sie wie ein Passwort.",
+      btn_export: "⬇ Paket exportieren",
+      btn_import: "⬆ Paket importieren",
+      exporting: "Paket wird erstellt…",
+      export_done: "Exportiert ✓ – siehe Downloads.",
+      export_fail: (msg) => "Export fehlgeschlagen: " + msg,
+      importing: "Importiere…",
+      import_done: (n) => n > 0 ? `Importiert ✓ – Einstellungen übernommen, ${n} Wissensdatei(en).` : "Importiert ✓ – Einstellungen übernommen.",
+      import_fail: (msg) => "Import fehlgeschlagen: " + msg,
       who_you: "Du",
       send_to_make: "→ An make.com senden",
       sent_to_make: "✓ An make.com gesendet",
@@ -601,6 +632,107 @@
     return [{ type: "text", text, cache_control: { type: "ephemeral" } }];
   }
 
+  // ---------- Config bundle (export / import) ----------
+  async function loadJSZip() {
+    await loadScript("https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js");
+    return window.JSZip;
+  }
+  function downloadBlob(blob, name) {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  }
+
+  async function exportBundle() {
+    const status = $("bundleStatus");
+    status.textContent = t("exporting");
+    try {
+      const JSZip = await loadJSZip();
+      const zip = new JSZip();
+      const bundle = {
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        settings: {
+          apiKey: settings.apiKey,
+          webhookUrl: settings.webhookUrl,
+          systemPrompt: settings.systemPrompt,
+          model: settings.model,
+          maxTokens: settings.maxTokens,
+          lang: settings.lang,
+        },
+        knowledge: knowledge.map(k => ({ name: k.name, text: k.text })),
+      };
+      zip.file("config.json", JSON.stringify(bundle, null, 2));
+      // Also drop human-readable copies of each knowledge doc for transparency.
+      knowledge.forEach(k => zip.file("knowledge/" + k.name.replace(/[\\/]/g, "_") + ".txt", k.text));
+      const blob = await zip.generateAsync({ type: "blob" });
+      downloadBlob(blob, "claude-wrapper-config.zip");
+      status.textContent = t("export_done");
+    } catch (err) {
+      status.textContent = t("export_fail", err.message);
+    }
+  }
+
+  async function importBundle(file) {
+    const status = $("bundleStatus");
+    status.textContent = t("importing");
+    try {
+      const JSZip = await loadJSZip();
+      const zip = await JSZip.loadAsync(file);
+      let knowledgeCount = 0;
+
+      // 1) Apply config.json (settings + embedded knowledge), if present.
+      const cfg = zip.file("config.json");
+      if (cfg) {
+        const bundle = JSON.parse(await cfg.async("string"));
+        const s = bundle.settings || bundle; // tolerate flat shape
+        settings = Object.assign({}, DEFAULT_SETTINGS, settings, {
+          apiKey: s.apiKey ?? settings.apiKey,
+          webhookUrl: s.webhookUrl ?? settings.webhookUrl,
+          systemPrompt: s.systemPrompt ?? settings.systemPrompt,
+          model: s.model ?? settings.model,
+          maxTokens: Math.max(256, Number(s.maxTokens) || settings.maxTokens),
+          lang: (s.lang === "de" || s.lang === "en") ? s.lang : settings.lang,
+        });
+        if (Array.isArray(bundle.knowledge)) {
+          for (const k of bundle.knowledge) {
+            if (k && k.name && typeof k.text === "string" && k.text) {
+              knowledge.push({ id: uid(), name: k.name, size: k.text.length, text: k.text });
+              knowledgeCount++;
+            }
+          }
+        }
+      }
+
+      // 2) Ingest any other files in the zip (raw attachments) as knowledge.
+      //    Skips config.json and the knowledge/*.txt copies that mirror config.json.
+      const skipMirror = !!cfg;
+      const entries = Object.values(zip.files).filter(f =>
+        !f.dir && f.name !== "config.json" && !(skipMirror && f.name.startsWith("knowledge/")));
+      for (const entry of entries) {
+        try {
+          const blob = await entry.async("blob");
+          const base = entry.name.split("/").pop();
+          const text = await extractFile(new File([blob], base));
+          if (text) { knowledge.push({ id: uid(), name: base, size: blob.size, text }); knowledgeCount++; }
+        } catch { /* skip unreadable entry */ }
+      }
+
+      saveSettings();
+      saveKnowledge();
+      applyI18n();
+      fillSettingsForm();
+      renderSidebar();
+      renderMessages();
+      refreshBanner();
+      status.textContent = t("import_done", knowledgeCount);
+    } catch (err) {
+      status.textContent = t("import_fail", err.message);
+    }
+  }
+
   // ---------- Claude streaming ----------
   async function streamClaude(messages, onDelta) {
     const system = buildSystem();
@@ -746,7 +878,7 @@
   }
 
   // ---------- Settings modal ----------
-  function openModal() {
+  function fillSettingsForm() {
     $("set-lang").value = settings.lang;
     $("set-apiKey").value = settings.apiKey;
     $("set-systemPrompt").value = settings.systemPrompt;
@@ -754,6 +886,10 @@
     $("set-model").value = settings.model;
     $("set-maxTokens").value = settings.maxTokens;
     renderKnowledge();
+  }
+  function openModal() {
+    fillSettingsForm();
+    $("bundleStatus").textContent = "";
     $("overlay").classList.add("open");
   }
   function closeModal() { $("overlay").classList.remove("open"); }
@@ -779,6 +915,9 @@
   $("cancelSettings").addEventListener("click", closeModal);
   $("saveSettings").addEventListener("click", saveModal);
   $("set-knowledgeInput").addEventListener("change", (e) => onKnowledgeUpload(e.target.files));
+  $("exportBundleBtn").addEventListener("click", exportBundle);
+  $("importBundleBtn").addEventListener("click", () => $("importBundleInput").click());
+  $("importBundleInput").addEventListener("change", (e) => { if (e.target.files[0]) importBundle(e.target.files[0]); e.target.value = ""; });
   $("set-lang").addEventListener("change", (e) => {
     settings.lang = e.target.value; saveSettings();
     applyI18n(); renderSidebar(); renderMessages(); refreshBanner();

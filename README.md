@@ -13,6 +13,9 @@ system prompt, so every chat behaves like that project.
 - 📡 **Send to make.com** — each reply has a "Send to make.com" button.
 - 🌍 **English / German** — switch the interface language in Settings (auto-detects your
   browser locale on first load).
+- 📦 **Config bundle** — export everything (key, webhook, instructions, knowledge) to one
+  `.zip`, or import a `.zip` to set up a browser in a single step — ideal for handing a
+  ready-to-go setup to someone.
 - 🔒 **No secrets in the repo** — the API key is entered in Settings and stored only in
   your browser, never committed.
 
@@ -59,6 +62,29 @@ with access protection instead of public GitHub Pages.
 > Getting your Project's instructions: open the Project on claude.ai → it has a custom
 > instructions / "What are you working on" field → copy that text into the Settings box.
 > (Claude.ai Projects have no API, so this manual copy is the only way.)
+
+### Configuration bundle (.zip)
+
+Under *Configuration bundle* in Settings:
+
+- **⬇ Export bundle** downloads `claude-wrapper-config.zip` containing a `config.json`
+  (API key, webhook, instructions, model, max tokens, language + the extracted knowledge
+  text) plus human-readable `knowledge/*.txt` copies.
+- **⬆ Import bundle** loads a `.zip` and applies everything in one step.
+
+This is the easiest way to **hand off a ready-to-go setup**: configure one browser, export
+the bundle, send the `.zip`, and the recipient just imports it.
+
+You can also **hand-assemble** a bundle: a `config.json` (any subset of
+`{apiKey, webhookUrl, systemPrompt, model, maxTokens, lang}`, optionally a `knowledge` array)
+plus any raw `.pdf` / `.docx` / `.txt` files dropped in — on import, the raw files are text-
+extracted and added as knowledge.
+
+Notes:
+- Import **adds to** existing knowledge (it doesn't wipe what's already there) — re-importing
+  the same bundle will duplicate entries.
+- ⚠ **The `.zip` contains the API key in plain text.** Treat the file like a password — send
+  it over a secure channel and delete it after import.
 
 ### Knowledge files
 
