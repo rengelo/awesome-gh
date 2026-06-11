@@ -1,0 +1,802 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Claude Wrapper → make.com</title>
+<style>
+  :root {
+    --bg: #faf9f6;
+    --panel: #ffffff;
+    --ink: #1f1d1a;
+    --muted: #6b6760;
+    --line: #e6e2da;
+    --accent: #c45a3b;
+    --accent-ink: #fff;
+    --user-bg: #efece5;
+    --assistant-bg: #ffffff;
+    --ok: #2e7d52;
+    --err: #c0392b;
+    --radius: 12px;
+    --shadow: 0 1px 3px rgba(0,0,0,.06), 0 8px 24px rgba(0,0,0,.04);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { background: var(--bg); color: var(--ink); display: flex; height: 100vh; overflow: hidden; }
+
+  /* Sidebar */
+  #sidebar {
+    width: 260px; flex: 0 0 260px; background: var(--panel); border-right: 1px solid var(--line);
+    display: flex; flex-direction: column;
+  }
+  #sidebar header { padding: 14px 16px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 8px; }
+  #sidebar header .logo { width: 26px; height: 26px; border-radius: 7px; background: var(--accent); color: var(--accent-ink);
+    display: grid; place-items: center; font-weight: 700; font-size: 14px; }
+  #sidebar header h1 { font-size: 14px; margin: 0; font-weight: 650; letter-spacing: .2px; }
+  #newChatBtn { margin: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius);
+    background: var(--bg); cursor: pointer; font-size: 14px; font-weight: 600; color: var(--ink); }
+  #newChatBtn:hover { border-color: var(--accent); color: var(--accent); }
+  #chatList { flex: 1; overflow-y: auto; padding: 0 8px 8px; }
+  .chat-item { padding: 9px 10px; border-radius: 9px; cursor: pointer; font-size: 13.5px; color: var(--muted);
+    display: flex; align-items: center; gap: 8px; margin-bottom: 2px; white-space: nowrap; overflow: hidden; }
+  .chat-item:hover { background: var(--bg); color: var(--ink); }
+  .chat-item.active { background: var(--user-bg); color: var(--ink); font-weight: 600; }
+  .chat-item .title { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+  .chat-item .del { opacity: 0; font-size: 16px; line-height: 1; color: var(--muted); padding: 0 2px; }
+  .chat-item:hover .del { opacity: .7; }
+  .chat-item .del:hover { color: var(--err); opacity: 1; }
+  #sidebar footer { padding: 12px; border-top: 1px solid var(--line); }
+  #settingsBtn { width: 100%; padding: 9px; border: 1px solid var(--line); border-radius: var(--radius);
+    background: var(--bg); cursor: pointer; font-size: 13.5px; color: var(--ink); }
+  #settingsBtn:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* Main */
+  #main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  #banner { display: none; background: #fff3cd; color: #6b5400; border-bottom: 1px solid #f0e0a8;
+    padding: 10px 16px; font-size: 13.5px; }
+  #banner a { color: var(--accent); font-weight: 600; cursor: pointer; text-decoration: underline; }
+  #messages { flex: 1; overflow-y: auto; padding: 24px 0; }
+  .row { max-width: 760px; margin: 0 auto; padding: 4px 24px; }
+  .msg { padding: 14px 16px; border-radius: var(--radius); margin: 10px 0; box-shadow: var(--shadow); position: relative; }
+  .msg.user { background: var(--user-bg); }
+  .msg.assistant { background: var(--assistant-bg); border: 1px solid var(--line); }
+  .msg .who { font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); margin-bottom: 6px; }
+  .msg .body { font-size: 15px; line-height: 1.6; white-space: pre-wrap; word-wrap: break-word; }
+  .msg .body code { background: #f0ede7; padding: 1px 5px; border-radius: 5px; font-size: 13px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .msg .body pre { background: #2b2925; color: #f4f1ea; padding: 12px 14px; border-radius: 9px; overflow-x: auto;
+    font-size: 13px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre; }
+  .msg .body pre code { background: none; padding: 0; color: inherit; }
+  .msg .actions { margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap; }
+  .pill { font-size: 12.5px; padding: 6px 11px; border-radius: 20px; border: 1px solid var(--line);
+    background: var(--bg); cursor: pointer; color: var(--ink); display: inline-flex; align-items: center; gap: 6px; }
+  .pill:hover { border-color: var(--accent); color: var(--accent); }
+  .pill.sent { border-color: var(--ok); color: var(--ok); background: #eef7f1; }
+  .pill[disabled] { opacity: .5; cursor: default; }
+  .empty { max-width: 760px; margin: 60px auto; text-align: center; color: var(--muted); padding: 0 24px; }
+  .empty h2 { color: var(--ink); font-weight: 650; }
+
+  /* Composer */
+  #composer { border-top: 1px solid var(--line); background: var(--panel); padding: 14px 0 18px; }
+  .composer-inner { max-width: 760px; margin: 0 auto; padding: 0 24px; display: flex; gap: 10px; align-items: flex-end; }
+  #input { flex: 1; resize: none; border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px;
+    font-size: 15px; font-family: inherit; line-height: 1.5; max-height: 200px; min-height: 24px; background: var(--bg); color: var(--ink); }
+  #input:focus { outline: none; border-color: var(--accent); }
+  #sendBtn { flex: 0 0 auto; padding: 12px 18px; border: none; border-radius: var(--radius); background: var(--accent);
+    color: var(--accent-ink); font-size: 15px; font-weight: 600; cursor: pointer; }
+  #sendBtn:hover { filter: brightness(1.05); }
+  #sendBtn[disabled] { opacity: .5; cursor: default; }
+  .hint { max-width: 760px; margin: 8px auto 0; padding: 0 24px; font-size: 11.5px; color: var(--muted); }
+
+  /* Modal */
+  #overlay { position: fixed; inset: 0; background: rgba(31,29,26,.4); display: none; align-items: center; justify-content: center; z-index: 50; }
+  #overlay.open { display: flex; }
+  #modal { background: var(--panel); width: 540px; max-width: calc(100vw - 32px); max-height: calc(100vh - 64px);
+    overflow-y: auto; border-radius: 16px; box-shadow: var(--shadow); }
+  #modal header { padding: 18px 22px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; }
+  #modal header h2 { margin: 0; font-size: 17px; font-weight: 650; }
+  #modal header .x { cursor: pointer; font-size: 22px; color: var(--muted); line-height: 1; border: none; background: none; }
+  #modal .content { padding: 20px 22px; }
+  .field { margin-bottom: 18px; }
+  .field label { display: block; font-size: 13px; font-weight: 650; margin-bottom: 6px; }
+  .field .desc { font-size: 12px; color: var(--muted); margin-bottom: 8px; line-height: 1.45; }
+  .field input, .field select, .field textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--line);
+    border-radius: 9px; font-size: 14px; font-family: inherit; background: var(--bg); color: var(--ink); }
+  .field input:focus, .field select:focus, .field textarea:focus { outline: none; border-color: var(--accent); }
+  .field textarea { resize: vertical; min-height: 130px; line-height: 1.5; }
+  .field .row2 { display: flex; gap: 12px; }
+  .field .row2 > div { flex: 1; }
+  #modal footer { padding: 16px 22px; border-top: 1px solid var(--line); display: flex; justify-content: flex-end; gap: 10px; }
+  .btn { padding: 10px 18px; border-radius: 9px; font-size: 14px; font-weight: 600; cursor: pointer; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+  .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .warn { font-size: 12px; color: var(--muted); background: #fbf6ee; border: 1px solid #f0e6d4; border-radius: 9px; padding: 10px 12px; line-height: 1.5; }
+  .kfile { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; margin-bottom: 6px; font-size: 13px; background: var(--bg); }
+  .kfile .kname { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .kfile .ksize { color: var(--muted); font-size: 11.5px; }
+  .kfile .kdel { cursor: pointer; color: var(--muted); border: none; background: none; font-size: 16px; line-height: 1; }
+  .kfile .kdel:hover { color: var(--err); }
+  code.k { background: #f0ede7; padding: 1px 5px; border-radius: 4px; font-family: ui-monospace, monospace; font-size: 12px; }
+</style>
+</head>
+<body>
+  <aside id="sidebar">
+    <header>
+      <div class="logo">C</div>
+      <h1>Claude → make.com</h1>
+    </header>
+    <button id="newChatBtn" data-i18n="new_chat">+ New chat</button>
+    <div id="chatList"></div>
+    <footer>
+      <button id="settingsBtn" data-i18n="settings_btn">⚙ Settings</button>
+    </footer>
+  </aside>
+
+  <main id="main">
+    <div id="banner"></div>
+    <div id="messages"></div>
+    <div id="composer">
+      <div class="composer-inner">
+        <textarea id="input" rows="1" data-i18n-ph="input_ph" placeholder="Message Claude…  (Enter to send, Shift+Enter for newline)"></textarea>
+        <button id="sendBtn" data-i18n="send">Send</button>
+      </div>
+      <div class="hint" data-i18n="hint">Uses your Claude API key (stored only in this browser).</div>
+    </div>
+  </main>
+
+  <!-- Settings modal -->
+  <div id="overlay">
+    <div id="modal">
+      <header>
+        <h2 data-i18n="settings_title">Settings</h2>
+        <button class="x" id="closeModal">×</button>
+      </header>
+      <div class="content">
+        <div class="field">
+          <label data-i18n="lang_label">Language</label>
+          <select id="set-lang">
+            <option value="en">English</option>
+            <option value="de">Deutsch</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label data-i18n="apikey_label">Anthropic API key</label>
+          <div class="desc" data-i18n-html="apikey_desc">Stored only in your browser's localStorage — never committed to the repo. Starts with <code class="k">sk-ant-</code>.</div>
+          <input type="password" id="set-apiKey" placeholder="sk-ant-…" autocomplete="off" />
+        </div>
+
+        <div class="field">
+          <label data-i18n="instructions_label">Project instructions (system prompt)</label>
+          <div class="desc" data-i18n="instructions_desc">Paste the custom instructions from your Claude.ai Project here. They are sent as the system prompt on every message in every chat.</div>
+          <textarea id="set-systemPrompt" data-i18n-ph="instructions_ph" placeholder="You are…"></textarea>
+        </div>
+
+        <div class="field">
+          <label data-i18n="knowledge_label">Knowledge files</label>
+          <div class="desc" data-i18n="knowledge_desc">Upload reference docs (.txt, .md, .csv, code, .pdf, .docx). Their text is extracted in your browser, stored locally, and added to the system prompt as reference context — shared across all chats. Cached so it doesn't cost full price every message.</div>
+          <input type="file" id="set-knowledgeInput" multiple
+                 accept=".txt,.md,.markdown,.csv,.json,.xml,.yaml,.yml,.js,.ts,.jsx,.tsx,.py,.rb,.go,.java,.c,.cpp,.cs,.php,.html,.css,.sh,.sql,.pdf,.docx,text/*" />
+          <div id="knowledgeStatus" style="font-size:12px;color:var(--muted);margin-top:6px;"></div>
+          <div id="knowledgeList" style="margin-top:8px;"></div>
+        </div>
+
+        <div class="field">
+          <label data-i18n="webhook_label">make.com webhook URL</label>
+          <div class="desc" data-i18n-html="webhook_desc">Custom Webhook trigger URL from your make.com scenario. The reply text is POSTed here (form-encoded fields: <code class="k">output</code>, <code class="k">prompt</code>, <code class="k">model</code>, <code class="k">chat_title</code>, <code class="k">timestamp</code>).</div>
+          <input type="text" id="set-webhookUrl" placeholder="https://hook.eu2.make.com/…" autocomplete="off" />
+        </div>
+
+        <div class="field">
+          <div class="row2">
+            <div>
+              <label data-i18n="model_label">Model</label>
+              <select id="set-model">
+                <option value="claude-opus-4-8" data-i18n="opt_opus">Claude Opus 4.8 (most capable)</option>
+                <option value="claude-sonnet-4-6" data-i18n="opt_sonnet">Claude Sonnet 4.6 (balanced)</option>
+                <option value="claude-haiku-4-5" data-i18n="opt_haiku">Claude Haiku 4.5 (fast/cheap)</option>
+              </select>
+            </div>
+            <div>
+              <label data-i18n="maxtokens_label">Max tokens</label>
+              <input type="number" id="set-maxTokens" min="256" max="64000" step="256" />
+            </div>
+          </div>
+        </div>
+
+        <div class="warn" data-i18n-html="warn">
+          <strong>Heads up:</strong> this app calls the Claude API directly from your browser, so the key lives client-side.
+          Anyone using this page tab can read it via dev tools. Use a key you can rotate, and never hard-code it into the published HTML — Anthropic scans public GitHub and auto-revokes leaked keys.
+        </div>
+      </div>
+      <footer>
+        <button class="btn" id="cancelSettings" data-i18n="btn_cancel">Cancel</button>
+        <button class="btn primary" id="saveSettings" data-i18n="btn_save">Save</button>
+      </footer>
+    </div>
+  </div>
+
+<script>
+(() => {
+  "use strict";
+
+  const LS_SETTINGS = "cmw.settings.v1";
+  const LS_CHATS = "cmw.chats.v1";
+  const LS_KNOWLEDGE = "cmw.knowledge.v1";
+  const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
+  const ANTHROPIC_VERSION = "2023-06-01";
+
+  const DEFAULT_SETTINGS = {
+    apiKey: "",
+    systemPrompt: "",
+    webhookUrl: "",
+    model: "claude-opus-4-8",
+    maxTokens: 8192,
+    lang: (navigator.language || "en").toLowerCase().startsWith("de") ? "de" : "en",
+  };
+
+  // ---------- i18n ----------
+  const I18N = {
+    en: {
+      new_chat: "+ New chat",
+      settings_btn: "⚙ Settings",
+      no_chats: "No chats yet.",
+      new_chat_title: "New chat",
+      send: "Send",
+      input_ph: "Message Claude…  (Enter to send, Shift+Enter for newline)",
+      hint: "Uses your Claude API key (stored only in this browser).",
+      settings_title: "Settings",
+      lang_label: "Language",
+      apikey_label: "Anthropic API key",
+      apikey_desc: "Stored only in your browser's localStorage — never committed to the repo. Starts with <code class=\"k\">sk-ant-</code>.",
+      instructions_label: "Project instructions (system prompt)",
+      instructions_desc: "Paste the custom instructions from your Claude.ai Project here. They are sent as the system prompt on every message in every chat.",
+      instructions_ph: "You are…",
+      knowledge_label: "Knowledge files",
+      knowledge_desc: "Upload reference docs (.txt, .md, .csv, code, .pdf, .docx). Their text is extracted in your browser, stored locally, and added to the system prompt as reference context — shared across all chats. Cached so it doesn't cost full price every message.",
+      knowledge_none: "No knowledge files yet.",
+      knowledge_status: (n, size, tok) => `${n} file(s) · ~${size} text · ~${tok} tokens added per message`,
+      ksize_suffix: " text",
+      extracting: (name) => `Extracting ${name}…`,
+      webhook_label: "make.com webhook URL",
+      webhook_desc: "Custom Webhook trigger URL from your make.com scenario. The reply text is POSTed here (form-encoded fields: <code class=\"k\">output</code>, <code class=\"k\">prompt</code>, <code class=\"k\">model</code>, <code class=\"k\">chat_title</code>, <code class=\"k\">timestamp</code>).",
+      model_label: "Model",
+      maxtokens_label: "Max tokens",
+      opt_opus: "Claude Opus 4.8 (most capable)",
+      opt_sonnet: "Claude Sonnet 4.6 (balanced)",
+      opt_haiku: "Claude Haiku 4.5 (fast/cheap)",
+      warn: "<strong>Heads up:</strong> this app calls the Claude API directly from your browser, so the key lives client-side. Anyone using this page tab can read it via dev tools. Use a key you can rotate, and never hard-code it into the published HTML — Anthropic scans public GitHub and auto-revokes leaked keys.",
+      btn_cancel: "Cancel",
+      btn_save: "Save",
+      who_you: "You",
+      send_to_make: "→ Send to make.com",
+      sent_to_make: "✓ Sent to make.com",
+      sending: "Sending…",
+      copy: "⧉ Copy",
+      copied: "✓ Copied",
+      del: "Delete",
+      remove: "Remove",
+      empty_start_h: "Start the conversation",
+      empty_start_p: "Send a message — Claude uses your project instructions from Settings.",
+      empty_welcome_h: "Welcome",
+      empty_welcome_p: "Create a new chat to begin. Set your API key, project instructions, and make.com webhook in Settings first.",
+      banner_prefix: "Missing ",
+      banner_suffix: " to finish setup.",
+      open_settings: "Open Settings",
+      and: "and",
+      missing_apikey: "API key",
+      missing_webhook: "make.com webhook",
+      empty_response: "(empty response)",
+      alert_set_webhook: "Set your make.com webhook URL in Settings first.",
+      alert_webhook_fail: (msg) => "Failed to reach the webhook: " + msg,
+      alert_set_apikey: "Set your Anthropic API key in Settings first.",
+      confirm_delete_chat: "Delete this chat?",
+      alert_no_text: (name) => `No text could be extracted from ${name} (it may be a scanned/image-only file).`,
+      alert_read_fail: (name, msg) => `Failed to read ${name}: ${msg}`,
+      alert_storage_full: (msg) => "Couldn't save knowledge — browser storage is full. Remove a file or use smaller documents.\n\n" + msg,
+    },
+    de: {
+      new_chat: "+ Neuer Chat",
+      settings_btn: "⚙ Einstellungen",
+      no_chats: "Noch keine Chats.",
+      new_chat_title: "Neuer Chat",
+      send: "Senden",
+      input_ph: "Nachricht an Claude…  (Enter zum Senden, Umschalt+Enter für Zeilenumbruch)",
+      hint: "Verwendet deinen Claude-API-Schlüssel (nur in diesem Browser gespeichert).",
+      settings_title: "Einstellungen",
+      lang_label: "Sprache",
+      apikey_label: "Anthropic-API-Schlüssel",
+      apikey_desc: "Wird nur im localStorage deines Browsers gespeichert – nie ins Repository übernommen. Beginnt mit <code class=\"k\">sk-ant-</code>.",
+      instructions_label: "Projektanweisungen (System-Prompt)",
+      instructions_desc: "Füge hier die individuellen Anweisungen aus deinem Claude.ai-Projekt ein. Sie werden bei jeder Nachricht in jedem Chat als System-Prompt gesendet.",
+      instructions_ph: "Du bist …",
+      knowledge_label: "Wissensdateien",
+      knowledge_desc: "Lade Referenzdokumente hoch (.txt, .md, .csv, Code, .pdf, .docx). Ihr Text wird im Browser extrahiert, lokal gespeichert und als Kontext zum System-Prompt hinzugefügt – für alle Chats verfügbar. Wird zwischengespeichert, damit nicht bei jeder Nachricht der volle Preis anfällt.",
+      knowledge_none: "Noch keine Wissensdateien.",
+      knowledge_status: (n, size, tok) => `${n} Datei(en) · ~${size} Text · ~${tok} Tokens pro Nachricht`,
+      ksize_suffix: " Text",
+      extracting: (name) => `Extrahiere ${name}…`,
+      webhook_label: "make.com-Webhook-URL",
+      webhook_desc: "Custom-Webhook-URL aus deinem make.com-Szenario. Der Antworttext wird hierher gesendet (Felder: <code class=\"k\">output</code>, <code class=\"k\">prompt</code>, <code class=\"k\">model</code>, <code class=\"k\">chat_title</code>, <code class=\"k\">timestamp</code>).",
+      model_label: "Modell",
+      maxtokens_label: "Max. Tokens",
+      opt_opus: "Claude Opus 4.8 (am leistungsstärksten)",
+      opt_sonnet: "Claude Sonnet 4.6 (ausgewogen)",
+      opt_haiku: "Claude Haiku 4.5 (schnell/günstig)",
+      warn: "<strong>Hinweis:</strong> Diese App ruft die Claude-API direkt aus deinem Browser auf, der Schlüssel liegt also clientseitig. Wer diesen Browser-Tab nutzt, kann ihn über die Entwicklertools auslesen. Verwende einen Schlüssel, den du rotieren kannst, und schreibe ihn niemals fest ins veröffentlichte HTML – Anthropic scannt öffentliches GitHub und sperrt geleakte Schlüssel automatisch.",
+      btn_cancel: "Abbrechen",
+      btn_save: "Speichern",
+      who_you: "Du",
+      send_to_make: "→ An make.com senden",
+      sent_to_make: "✓ An make.com gesendet",
+      sending: "Senden…",
+      copy: "⧉ Kopieren",
+      copied: "✓ Kopiert",
+      del: "Löschen",
+      remove: "Entfernen",
+      empty_start_h: "Starte die Unterhaltung",
+      empty_start_p: "Sende eine Nachricht – Claude nutzt deine Projektanweisungen aus den Einstellungen.",
+      empty_welcome_h: "Willkommen",
+      empty_welcome_p: "Erstelle einen neuen Chat, um zu beginnen. Hinterlege zuerst deinen API-Schlüssel, die Projektanweisungen und den make.com-Webhook in den Einstellungen.",
+      banner_prefix: "Es fehlt noch: ",
+      banner_suffix: ", um die Einrichtung abzuschließen.",
+      open_settings: "Einstellungen öffnen",
+      and: "und",
+      missing_apikey: "API-Schlüssel",
+      missing_webhook: "make.com-Webhook",
+      empty_response: "(leere Antwort)",
+      alert_set_webhook: "Hinterlege zuerst deine make.com-Webhook-URL in den Einstellungen.",
+      alert_webhook_fail: (msg) => "Webhook nicht erreichbar: " + msg,
+      alert_set_apikey: "Hinterlege zuerst deinen Anthropic-API-Schlüssel in den Einstellungen.",
+      confirm_delete_chat: "Diesen Chat löschen?",
+      alert_no_text: (name) => `Aus ${name} konnte kein Text extrahiert werden (möglicherweise eine gescannte/reine Bilddatei).`,
+      alert_read_fail: (name, msg) => `${name} konnte nicht gelesen werden: ${msg}`,
+      alert_storage_full: (msg) => "Wissensdatei konnte nicht gespeichert werden – der Browser-Speicher ist voll. Entferne eine Datei oder verwende kleinere Dokumente.\n\n" + msg,
+    },
+  };
+
+  function t(key, ...args) {
+    const table = I18N[settings.lang] || I18N.en;
+    let v = table[key];
+    if (v === undefined) v = I18N.en[key];
+    return typeof v === "function" ? v(...args) : v;
+  }
+  function applyI18n() {
+    document.documentElement.lang = settings.lang;
+    document.querySelectorAll("[data-i18n]").forEach(el => { el.textContent = t(el.dataset.i18n); });
+    document.querySelectorAll("[data-i18n-ph]").forEach(el => { el.placeholder = t(el.dataset.i18nPh); });
+    document.querySelectorAll("[data-i18n-html]").forEach(el => { el.innerHTML = t(el.dataset.i18nHtml); });
+  }
+
+  // ---------- State ----------
+  let settings = loadSettings();
+  let chats = loadChats();          // [{id, title, messages:[{role, content, sentToMake?}], createdAt}]
+  let knowledge = loadKnowledge();  // [{id, name, size, text}]
+  let activeId = chats[0]?.id || null;
+  let streaming = false;
+
+  function loadSettings() {
+    try { return Object.assign({}, DEFAULT_SETTINGS, JSON.parse(localStorage.getItem(LS_SETTINGS) || "{}")); }
+    catch { return Object.assign({}, DEFAULT_SETTINGS); }
+  }
+  function saveSettings() { localStorage.setItem(LS_SETTINGS, JSON.stringify(settings)); }
+  function loadChats() {
+    try { const c = JSON.parse(localStorage.getItem(LS_CHATS) || "[]"); return Array.isArray(c) ? c : []; }
+    catch { return []; }
+  }
+  function saveChats() { localStorage.setItem(LS_CHATS, JSON.stringify(chats)); }
+  function loadKnowledge() {
+    try { const k = JSON.parse(localStorage.getItem(LS_KNOWLEDGE) || "[]"); return Array.isArray(k) ? k : []; }
+    catch { return []; }
+  }
+  function saveKnowledge() {
+    try { localStorage.setItem(LS_KNOWLEDGE, JSON.stringify(knowledge)); return true; }
+    catch (e) { alert(t("alert_storage_full", e.message)); return false; }
+  }
+  function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+  function activeChat() { return chats.find(c => c.id === activeId) || null; }
+
+  // ---------- Elements ----------
+  const $ = (id) => document.getElementById(id);
+  const elChatList = $("chatList");
+  const elMessages = $("messages");
+  const elInput = $("input");
+  const elSend = $("sendBtn");
+  const elBanner = $("banner");
+
+  // ---------- Rendering ----------
+  function renderSidebar() {
+    elChatList.innerHTML = "";
+    if (!chats.length) {
+      const d = document.createElement("div");
+      d.style.cssText = "padding:12px 10px;font-size:12.5px;color:var(--muted)";
+      d.textContent = t("no_chats");
+      elChatList.appendChild(d);
+      return;
+    }
+    for (const c of chats) {
+      const item = document.createElement("div");
+      item.className = "chat-item" + (c.id === activeId ? " active" : "");
+      item.innerHTML = `<span class="title"></span><span class="del"></span>`;
+      item.querySelector(".del").textContent = "×";
+      item.querySelector(".del").title = t("del");
+      item.querySelector(".title").textContent = c.title || t("new_chat_title");
+      item.addEventListener("click", (e) => {
+        if (e.target.classList.contains("del")) return;
+        activeId = c.id; renderSidebar(); renderMessages();
+      });
+      item.querySelector(".del").addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (!confirm(t("confirm_delete_chat"))) return;
+        chats = chats.filter(x => x.id !== c.id);
+        if (activeId === c.id) activeId = chats[0]?.id || null;
+        saveChats(); renderSidebar(); renderMessages();
+      });
+      elChatList.appendChild(item);
+    }
+  }
+
+  function escapeHtml(s) {
+    return s.replace(/[&<>]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[ch]));
+  }
+  // Minimal, safe markdown: code fences, inline code, bold, line breaks (everything escaped first).
+  function formatBody(text) {
+    const fences = [];
+    let t = text.replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) => {
+      fences.push(`<pre><code>${escapeHtml(code.replace(/\n$/, ""))}</code></pre>`);
+      return ` ${fences.length - 1} `;
+    });
+    t = escapeHtml(t);
+    t = t.replace(/`([^`\n]+)`/g, (_, c) => `<code>${c}</code>`);
+    t = t.replace(/\*\*([^*\n]+)\*\*/g, (_, b) => `<strong>${b}</strong>`);
+    t = t.replace(/ (\d+) /g, (_, i) => fences[+i]);
+    return t;
+  }
+
+  function renderMessages() {
+    elMessages.innerHTML = "";
+    const chat = activeChat();
+    if (!chat || !chat.messages.length) {
+      const e = document.createElement("div");
+      e.className = "empty";
+      const h = document.createElement("h2");
+      const p = document.createElement("p");
+      h.textContent = t(chat ? "empty_start_h" : "empty_welcome_h");
+      p.textContent = t(chat ? "empty_start_p" : "empty_welcome_p");
+      e.appendChild(h); e.appendChild(p);
+      elMessages.appendChild(e);
+      return;
+    }
+    chat.messages.forEach((m, idx) => elMessages.appendChild(messageEl(m, idx)));
+    elMessages.scrollTop = elMessages.scrollHeight;
+  }
+
+  function messageEl(m, idx) {
+    const row = document.createElement("div");
+    row.className = "row";
+    const msg = document.createElement("div");
+    msg.className = "msg " + m.role;
+    const who = document.createElement("div");
+    who.className = "who";
+    who.textContent = m.role === "user" ? t("who_you") : "Claude";
+    const body = document.createElement("div");
+    body.className = "body";
+    body.innerHTML = formatBody(m.content);
+    msg.appendChild(who); msg.appendChild(body);
+
+    if (m.role === "assistant") {
+      const actions = document.createElement("div");
+      actions.className = "actions";
+      const send = document.createElement("button");
+      send.className = "pill" + (m.sentToMake ? " sent" : "");
+      send.textContent = m.sentToMake ? t("sent_to_make") : t("send_to_make");
+      send.addEventListener("click", () => sendToMake(idx, send));
+      const copy = document.createElement("button");
+      copy.className = "pill";
+      copy.textContent = t("copy");
+      copy.addEventListener("click", () => {
+        navigator.clipboard.writeText(m.content);
+        copy.textContent = t("copied"); setTimeout(() => copy.textContent = t("copy"), 1200);
+      });
+      actions.appendChild(send); actions.appendChild(copy);
+      msg.appendChild(actions);
+    }
+    row.appendChild(msg);
+    return row;
+  }
+
+  function refreshBanner() {
+    const issues = [];
+    if (!settings.apiKey) issues.push(t("missing_apikey"));
+    if (!settings.webhookUrl) issues.push(t("missing_webhook"));
+    if (issues.length) {
+      const joined = issues.join(" " + t("and") + " ");
+      elBanner.style.display = "block";
+      elBanner.innerHTML = `${escapeHtml(t("banner_prefix") + joined)}. <a id="openSet"></a>${escapeHtml(t("banner_suffix"))}`;
+      const link = $("openSet"); link.textContent = t("open_settings");
+      link.addEventListener("click", openModal);
+    } else {
+      elBanner.style.display = "none";
+    }
+  }
+
+  // ---------- make.com ----------
+  async function sendToMake(idx, btn) {
+    const chat = activeChat();
+    const m = chat?.messages[idx];
+    if (!m) return;
+    if (!settings.webhookUrl) { alert(t("alert_set_webhook")); openModal(); return; }
+    const prevUser = chat.messages.slice(0, idx).reverse().find(x => x.role === "user");
+    const body = new URLSearchParams({
+      output: m.content,
+      prompt: prevUser ? prevUser.content : "",
+      model: settings.model,
+      chat_title: chat.title || "",
+      timestamp: new Date().toISOString(),
+    });
+    if (btn) { btn.disabled = true; btn.textContent = t("sending"); }
+    try {
+      // Simple request (form-encoded) + no-cors: delivers reliably without a CORS preflight.
+      // make.com parses the fields natively; we can't read the opaque response, so we optimistically confirm.
+      await fetch(settings.webhookUrl, { method: "POST", mode: "no-cors", body });
+      m.sentToMake = true; saveChats();
+      if (btn) { btn.disabled = false; btn.className = "pill sent"; btn.textContent = t("sent_to_make"); }
+    } catch (err) {
+      if (btn) { btn.disabled = false; btn.className = "pill"; btn.textContent = t("send_to_make"); }
+      alert(t("alert_webhook_fail", err.message));
+    }
+  }
+
+  // ---------- Knowledge extraction ----------
+  function loadScript(src) {
+    return new Promise((res, rej) => {
+      if (document.querySelector(`script[src="${src}"]`)) return res();
+      const s = document.createElement("script");
+      s.src = src; s.onload = res; s.onerror = () => rej(new Error("Failed to load " + src));
+      document.head.appendChild(s);
+    });
+  }
+  async function extractPdf(file) {
+    const pdfjs = await import("https://cdn.jsdelivr.net/npm/pdfjs-dist@4.7.76/build/pdf.min.mjs");
+    pdfjs.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.7.76/build/pdf.worker.min.mjs";
+    const doc = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
+    let out = "";
+    for (let p = 1; p <= doc.numPages; p++) {
+      const content = await (await doc.getPage(p)).getTextContent();
+      out += content.items.map(i => i.str).join(" ") + "\n\n";
+    }
+    return out.trim();
+  }
+  async function extractDocx(file) {
+    await loadScript("https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js");
+    const r = await window.mammoth.extractRawText({ arrayBuffer: await file.arrayBuffer() });
+    return (r.value || "").trim();
+  }
+  async function extractFile(file) {
+    const name = file.name.toLowerCase();
+    if (name.endsWith(".pdf")) return extractPdf(file);
+    if (name.endsWith(".docx")) return extractDocx(file);
+    return (await file.text()).trim(); // text / md / csv / code
+  }
+  function humanSize(n) {
+    if (n < 1024) return n + " B";
+    if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " KB";
+    return (n / 1024 / 1024).toFixed(1) + " MB";
+  }
+
+  // Assemble the system prompt from instructions + knowledge, with a cache breakpoint
+  // (stable across messages → ~90% cheaper to resend). Returns undefined if both empty.
+  function buildSystem() {
+    const parts = [];
+    if (settings.systemPrompt.trim()) parts.push(settings.systemPrompt.trim());
+    if (knowledge.length) {
+      parts.push(
+        "# Reference documents\n\nThe following documents are provided as background knowledge. " +
+        "Use them when relevant; cite the document name when you draw on one.\n\n" +
+        knowledge.map(k => `<document name="${k.name}">\n${k.text}\n</document>`).join("\n\n")
+      );
+    }
+    const text = parts.join("\n\n");
+    if (!text) return undefined;
+    return [{ type: "text", text, cache_control: { type: "ephemeral" } }];
+  }
+
+  // ---------- Claude streaming ----------
+  async function streamClaude(messages, onDelta) {
+    const system = buildSystem();
+    const res = await fetch(ANTHROPIC_URL, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": settings.apiKey,
+        "anthropic-version": ANTHROPIC_VERSION,
+        "anthropic-dangerous-direct-browser-access": "true",
+      },
+      body: JSON.stringify({
+        model: settings.model,
+        max_tokens: Number(settings.maxTokens) || 8192,
+        ...(system ? { system } : {}),
+        stream: true,
+        messages,
+      }),
+    });
+
+    if (!res.ok || !res.body) {
+      let detail = res.statusText;
+      try { const j = await res.json(); detail = j?.error?.message || detail; } catch {}
+      throw new Error(`API ${res.status}: ${detail}`);
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let nl;
+      while ((nl = buffer.indexOf("\n")) >= 0) {
+        const line = buffer.slice(0, nl).trim();
+        buffer = buffer.slice(nl + 1);
+        if (!line.startsWith("data:")) continue;
+        const data = line.slice(5).trim();
+        if (!data) continue;
+        try {
+          const ev = JSON.parse(data);
+          if (ev.type === "content_block_delta" && ev.delta?.type === "text_delta") onDelta(ev.delta.text);
+          else if (ev.type === "error") throw new Error(ev.error?.message || "stream error");
+        } catch (e) { if (e instanceof SyntaxError) continue; throw e; }
+      }
+    }
+  }
+
+  async function send() {
+    if (streaming) return;
+    const text = elInput.value.trim();
+    if (!text) return;
+    if (!settings.apiKey) { alert(t("alert_set_apikey")); openModal(); return; }
+
+    let chat = activeChat();
+    if (!chat) { chat = newChat(); }
+
+    chat.messages.push({ role: "user", content: text });
+    if (chat.messages.filter(m => m.role === "user").length === 1) {
+      chat.title = text.slice(0, 40) + (text.length > 40 ? "…" : "");
+    }
+    elInput.value = ""; autosize();
+    saveChats(); renderSidebar(); renderMessages();
+
+    // Placeholder assistant message we stream into.
+    const assistant = { role: "assistant", content: "" };
+    chat.messages.push(assistant);
+    renderMessages();
+    const bodyEl = elMessages.querySelector(".row:last-child .body");
+
+    streaming = true; elSend.disabled = true; elSend.textContent = "…";
+    const apiMessages = chat.messages
+      .filter(m => m !== assistant) // everything except the empty placeholder we're streaming into
+      .map(m => ({ role: m.role, content: m.content }));
+
+    try {
+      await streamClaude(apiMessages, (delta) => {
+        assistant.content += delta;
+        if (bodyEl) { bodyEl.innerHTML = formatBody(assistant.content); elMessages.scrollTop = elMessages.scrollHeight; }
+      });
+      if (!assistant.content) assistant.content = t("empty_response");
+    } catch (err) {
+      assistant.content = "⚠️ " + err.message;
+    } finally {
+      streaming = false; elSend.disabled = false; elSend.textContent = t("send");
+      saveChats(); renderMessages();
+    }
+  }
+
+  function newChat() {
+    const c = { id: uid(), title: "", messages: [], createdAt: Date.now() };
+    chats.unshift(c); activeId = c.id; saveChats(); renderSidebar(); renderMessages();
+    return c;
+  }
+
+  // ---------- Knowledge UI ----------
+  function renderKnowledge() {
+    const list = $("knowledgeList");
+    const status = $("knowledgeStatus");
+    list.innerHTML = "";
+    let totalChars = 0;
+    for (const k of knowledge) {
+      totalChars += k.text.length;
+      const row = document.createElement("div");
+      row.className = "kfile";
+      row.innerHTML = `<span class="kname"></span><span class="ksize"></span><button class="kdel">×</button>`;
+      row.querySelector(".kname").textContent = k.name;
+      row.querySelector(".ksize").textContent = humanSize(k.text.length) + t("ksize_suffix");
+      const delBtn = row.querySelector(".kdel"); delBtn.title = t("remove");
+      delBtn.addEventListener("click", () => {
+        knowledge = knowledge.filter(x => x.id !== k.id);
+        saveKnowledge(); renderKnowledge();
+      });
+      list.appendChild(row);
+    }
+    if (knowledge.length) {
+      const approxTokens = Math.round(totalChars / 4);
+      status.textContent = t("knowledge_status", knowledge.length, humanSize(totalChars), approxTokens.toLocaleString());
+      status.style.color = totalChars > 1500000 ? "var(--err)" : "var(--muted)";
+    } else {
+      status.textContent = t("knowledge_none");
+      status.style.color = "var(--muted)";
+    }
+  }
+
+  async function onKnowledgeUpload(fileList) {
+    const status = $("knowledgeStatus");
+    const files = Array.from(fileList);
+    for (const file of files) {
+      status.textContent = t("extracting", file.name);
+      try {
+        const text = await extractFile(file);
+        if (!text) { alert(t("alert_no_text", file.name)); continue; }
+        knowledge.push({ id: uid(), name: file.name, size: file.size, text });
+        if (!saveKnowledge()) { knowledge.pop(); break; }
+      } catch (err) {
+        alert(t("alert_read_fail", file.name, err.message));
+      }
+    }
+    $("set-knowledgeInput").value = "";
+    renderKnowledge();
+  }
+
+  // ---------- Settings modal ----------
+  function openModal() {
+    $("set-lang").value = settings.lang;
+    $("set-apiKey").value = settings.apiKey;
+    $("set-systemPrompt").value = settings.systemPrompt;
+    $("set-webhookUrl").value = settings.webhookUrl;
+    $("set-model").value = settings.model;
+    $("set-maxTokens").value = settings.maxTokens;
+    renderKnowledge();
+    $("overlay").classList.add("open");
+  }
+  function closeModal() { $("overlay").classList.remove("open"); }
+  function saveModal() {
+    settings.apiKey = $("set-apiKey").value.trim();
+    settings.systemPrompt = $("set-systemPrompt").value;
+    settings.webhookUrl = $("set-webhookUrl").value.trim();
+    settings.model = $("set-model").value;
+    settings.maxTokens = Math.max(256, Number($("set-maxTokens").value) || 8192);
+    saveSettings(); closeModal(); refreshBanner();
+  }
+
+  // ---------- Composer behaviour ----------
+  function autosize() {
+    elInput.style.height = "auto";
+    elInput.style.height = Math.min(elInput.scrollHeight, 200) + "px";
+  }
+
+  // ---------- Wire up ----------
+  $("newChatBtn").addEventListener("click", newChat);
+  $("settingsBtn").addEventListener("click", openModal);
+  $("closeModal").addEventListener("click", closeModal);
+  $("cancelSettings").addEventListener("click", closeModal);
+  $("saveSettings").addEventListener("click", saveModal);
+  $("set-knowledgeInput").addEventListener("change", (e) => onKnowledgeUpload(e.target.files));
+  $("set-lang").addEventListener("change", (e) => {
+    settings.lang = e.target.value; saveSettings();
+    applyI18n(); renderSidebar(); renderMessages(); refreshBanner();
+  });
+  $("overlay").addEventListener("click", (e) => { if (e.target.id === "overlay") closeModal(); });
+  elSend.addEventListener("click", send);
+  elInput.addEventListener("input", autosize);
+  elInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+  });
+
+  // ---------- Init ----------
+  applyI18n();
+  renderSidebar();
+  renderMessages();
+  refreshBanner();
+  if (!settings.apiKey) openModal();
+})();
+</script>
+</body>
+</html>
