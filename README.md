@@ -121,20 +121,34 @@ Notes:
 
 ### Payload the app sends
 
-POSTed as `application/x-www-form-urlencoded`:
+The send handler parses the assistant's German newsletter (deterministically — pure string
+slicing, no LLM, content unchanged) into named fields and POSTs them as **JSON**
+(`Content-Type: application/json`):
 
-| Field | Description |
+| Field | Source |
 |---|---|
-| `output` | The Claude reply text. |
-| `prompt` | The user message that produced it. |
-| `model` | Model id used. |
-| `chat_title` | Title of the chat. |
-| `timestamp` | ISO 8601 send time. |
+| `subject` | text after `Betreff:` / `Subject:` |
+| `preheader` | text after `Preheader:` / `Vorschau:` |
+| `headline` | text after `Titel:` / `Headline:` / `Überschrift:` |
+| `story` | body paragraph 1 (Geschichte) |
+| `analyse` | body paragraph 2 (Analyse) |
+| `spur` | paragraphs between Analyse and Conclusio, joined with a blank line |
+| `pointe` | second-to-last paragraph (Conclusio) |
+| `schluss` | last paragraph (Markersatz) |
 
-> **Delivery note:** the browser sends this as a `no-cors` request (make.com webhooks
-> don't return CORS headers). That means delivery is reliable, but the page can't read
-> the response — it optimistically shows "✓ Sent". Confirm receipt in make.com's
-> execution history.
+**Validation — it will _not_ POST** if any label is missing, the body has fewer than 5
+paragraphs, or the final paragraph doesn't contain
+`lässt sich in einem ersten Gespräch`. Instead it shows
+`Send aborted: newsletter structure not recognised — <reason>` so a broken layout never
+ships to Brevo.
+
+> **CORS note:** because the body is `application/json`, the browser sends this as a CORS
+> request with a preflight `OPTIONS` (unlike the old form-encoded `no-cors` send). The app
+> now reads the response and reports a real success/failure. If you ever see a
+> "Failed to fetch" error on send, the make.com webhook isn't returning CORS headers for
+> your setup — verify the run landed in make.com's execution history; if it consistently
+> blocks, the webhook may need a CORS-allowing response or a thin proxy. The parser lives in
+> [`newsletter-parser.js`](newsletter-parser.js); see *Tests* below.
 
 ---
 
@@ -146,9 +160,19 @@ Browser (GitHub Pages)
    ▼
 api.anthropic.com  ──stream──▶  reply rendered in UI
    │
-   │  2. "Send to make.com"  (form-encoded POST)
+   │  2. "Send to make.com"  (parse newsletter → JSON fields → POST)
    ▼
-hook.make.com  ──▶  your scenario (Sheets / email / Slack / …)
+hook.make.com  ──▶  your scenario → Brevo (subject, preheader, headline, story, …)
+```
+
+## Tests
+
+The newsletter parser ([`newsletter-parser.js`](newsletter-parser.js)) has unit tests
+([`newsletter-parser.test.js`](newsletter-parser.test.js)) covering the 5- and 6-paragraph
+body variants, blank-line collapsing, CRLF input, and each rejection case. Run them with:
+
+```sh
+node --test
 ```
 
 ## Limitations

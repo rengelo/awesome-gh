@@ -227,6 +227,7 @@
     </div>
   </div>
 
+<script src="newsletter-parser.js"></script>
 <script>
 (() => {
   "use strict";
@@ -475,12 +476,12 @@
     const fences = [];
     let t = text.replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) => {
       fences.push(`<pre><code>${escapeHtml(code.replace(/\n$/, ""))}</code></pre>`);
-      return ` ${fences.length - 1} `;
+      return `${fences.length - 1}`;
     });
     t = escapeHtml(t);
     t = t.replace(/`([^`\n]+)`/g, (_, c) => `<code>${c}</code>`);
     t = t.replace(/\*\*([^*\n]+)\*\*/g, (_, b) => `<strong>${b}</strong>`);
-    t = t.replace(/ (\d+) /g, (_, i) => fences[+i]);
+    t = t.replace(/(\d+)/g, (_, i) => fences[+i]);
     return t;
   }
 
@@ -557,19 +558,24 @@
     const m = chat?.messages[idx];
     if (!m) return;
     if (!settings.webhookUrl) { alert(t("alert_set_webhook")); openModal(); return; }
-    const prevUser = chat.messages.slice(0, idx).reverse().find(x => x.role === "user");
-    const body = new URLSearchParams({
-      output: m.content,
-      prompt: prevUser ? prevUser.content : "",
-      model: settings.model,
-      chat_title: chat.title || "",
-      timestamp: new Date().toISOString(),
-    });
+
+    // Deterministically split the newsletter into named fields (no LLM, no rewording).
+    // Abort — do not POST — if the structure isn't recognised, so a broken layout
+    // never ships to Brevo silently.
+    const parsed = parseNewsletter(m.content);
+    if (!parsed.ok) {
+      alert("Send aborted: newsletter structure not recognised — " + parsed.reason);
+      return;
+    }
+
     if (btn) { btn.disabled = true; btn.textContent = t("sending"); }
     try {
-      // Simple request (form-encoded) + no-cors: delivers reliably without a CORS preflight.
-      // make.com parses the fields natively; we can't read the opaque response, so we optimistically confirm.
-      await fetch(settings.webhookUrl, { method: "POST", mode: "no-cors", body });
+      const res = await fetch(settings.webhookUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(parsed.fields),
+      });
+      if (!res.ok) throw new Error("HTTP " + res.status);
       m.sentToMake = true; saveChats();
       if (btn) { btn.disabled = false; btn.className = "pill sent"; btn.textContent = t("sent_to_make"); }
     } catch (err) {
