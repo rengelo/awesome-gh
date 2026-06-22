@@ -183,3 +183,7 @@ node --test
   copy/upload — the API can't reach a Claude.ai Project. Re-upload the docs via *Knowledge
   files*. No in-browser OCR, so scanned/image-only PDFs won't yield text.
 - **Chats live in one browser.** No cross-device sync; clearing site data erases them.
+- **Needs a normal browser tab.** All config lives in `localStorage`. Embedded preview
+  panels, sandboxed iframes, or private windows that block storage will show a
+  "Browser storage is blocked" banner and won't persist settings — open the deployed URL
+  in a regular tab.
