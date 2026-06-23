@@ -8,11 +8,11 @@
 //   Preheader: <preheader>
 //   Titel: <headline>
 //   <blank line>
-//   <Geschichte>        (paragraph 1)
-//   <Analyse>           (paragraph 2)
-//   <Spur>              (1-2 paragraphs)
-//   <Conclusio>         (second-to-last paragraph)
-//   <Markersatz>        (last paragraph; ends with the fixed phrase)
+//   <Geschichte>        (paragraph 1)        → story
+//   <Analyse>           (paragraph 2)        → analyse
+//   <Spur>              (1-2 paragraphs)     → spur / spur_1 / spur_2
+//   <Conclusio>         (second-to-last)     → conclusio
+//   <Markersatz>        (last paragraph)     → schluss
 //
 // Returns { ok: true, fields } or { ok: false, reason }.
 (function (root) {
@@ -68,7 +68,7 @@
         spur: spurParas.join("\n\n"),
         spur_1: spurParas[0] || "",
         spur_2: spurParas[1] || "",
-        pointe: paras[paras.length - 2],
+        conclusio: paras[paras.length - 2],
         schluss: markersatz,
       },
     };
