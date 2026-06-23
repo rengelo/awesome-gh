@@ -56,6 +56,7 @@
       return { ok: false, reason: 'final paragraph missing the phrase "' + MARKER_PHRASE + '"' };
     }
 
+    var spurParas = paras.slice(2, paras.length - 2);
     return {
       ok: true,
       fields: {
@@ -64,7 +65,9 @@
         headline: headline.value,
         story: paras[0],
         analyse: paras[1],
-        spur: paras.slice(2, paras.length - 2).join("\n\n"),
+        spur: spurParas.join("\n\n"),
+        spur_1: spurParas[0] || "",
+        spur_2: spurParas[1] || "",
         pointe: paras[paras.length - 2],
         schluss: markersatz,
       },
