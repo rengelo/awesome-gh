@@ -48,7 +48,7 @@ test("5-paragraph newsletter maps every field", () => {
   assert.equal(f.spur, "Wer früh spricht, zahlt weniger Aufschlag.");
   assert.equal(f.spur_1, "Wer früh spricht, zahlt weniger Aufschlag.");
   assert.equal(f.spur_2, "");
-  assert.equal(f.pointe, "Am Ende bleibt die Frage, was Nähe wirklich wert ist.");
+  assert.equal(f.conclusio, "Am Ende bleibt die Frage, was Nähe wirklich wert ist.");
   assert.equal(f.schluss, MARKER);
 });
 
@@ -64,7 +64,7 @@ test("6-paragraph newsletter joins the two Spur paragraphs with a blank line", (
   assert.equal(f.spur, "Spur-Absatz eins.\n\nSpur-Absatz zwei.");
   assert.equal(f.spur_1, "Spur-Absatz eins.");
   assert.equal(f.spur_2, "Spur-Absatz zwei.");
-  assert.equal(f.pointe, "Conclusio-Satz.");
+  assert.equal(f.conclusio, "Conclusio-Satz.");
   assert.equal(f.schluss, MARKER);
 });
 
