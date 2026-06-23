@@ -195,7 +195,7 @@
 
         <div class="field">
           <label data-i18n="webhook_label">make.com webhook URL</label>
-          <div class="desc" data-i18n-html="webhook_desc">Custom Webhook trigger URL from your make.com scenario. The reply text is POSTed here (form-encoded fields: <code class="k">output</code>, <code class="k">prompt</code>, <code class="k">model</code>, <code class="k">chat_title</code>, <code class="k">timestamp</code>).</div>
+          <div class="desc" data-i18n-html="webhook_desc">Custom Webhook trigger URL from your make.com scenario. The newsletter is parsed and POSTed as JSON fields: <code class="k">subject</code>, <code class="k">preheader</code>, <code class="k">headline</code>, <code class="k">story</code>, <code class="k">analyse</code>, <code class="k">spur</code>, <code class="k">pointe</code>, <code class="k">schluss</code>.</div>
           <input type="text" id="set-webhookUrl" placeholder="https://hook.eu2.make.com/…" autocomplete="off" />
         </div>
 
@@ -341,7 +341,7 @@
       ksize_suffix: " Text",
       extracting: (name) => `Extrahiere ${name}…`,
       webhook_label: "make.com-Webhook-URL",
-      webhook_desc: "Custom-Webhook-URL aus deinem make.com-Szenario. Der Antworttext wird hierher gesendet (Felder: <code class=\"k\">output</code>, <code class=\"k\">prompt</code>, <code class=\"k\">model</code>, <code class=\"k\">chat_title</code>, <code class=\"k\">timestamp</code>).",
+      webhook_desc: "Custom-Webhook-URL aus deinem make.com-Szenario. Der Newsletter wird geparst und als JSON gesendet: <code class=\"k\">subject</code>, <code class=\"k\">preheader</code>, <code class=\"k\">headline</code>, <code class=\"k\">story</code>, <code class=\"k\">analyse</code>, <code class=\"k\">spur</code>, <code class=\"k\">pointe</code>, <code class=\"k\">schluss</code>.",
       model_label: "Modell",
       maxtokens_label: "Max. Tokens",
       opt_opus: "Claude Opus 4.8 (am leistungsstärksten)",
