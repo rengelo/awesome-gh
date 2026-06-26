@@ -5,13 +5,14 @@ const assert = require("node:assert/strict");
 const { parseNewsletter } = require("./newsletter-parser.js");
 
 const MARKER = "Das lässt sich in einem ersten Gespräch herausfinden.";
+const FIXED_SCHLUSS = "Ob das auf Ihre Situation zutrifft, lässt sich in einem ersten Gespräch herausfinden.";
 
 // Paragraphs are separated by a BLANK line (the assistant's fixed shape).
 function build(header, bodyParas) {
   return header.join("\n") + "\n\n" + bodyParas.join("\n\n");
 }
 
-// 5-paragraph body: Geschichte, Analyse, Spur (1), Conclusio, Markersatz.
+// 5-paragraph body: canonical shape.
 const FIVE = build(
   ["Betreff: Wenn Stille teurer wird als Streit",
    "Preheader: Warum Schweigen selten spart",
@@ -23,7 +24,7 @@ const FIVE = build(
    MARKER]
 );
 
-// 6-paragraph body: Spur spans TWO paragraphs. Also exercises EN labels.
+// 6-paragraph body: Spur spans two paragraphs. Also exercises EN labels.
 const SIX = build(
   ["Subject: Zweites Beispiel",
    "Vorschau: Mit längerer Spur",
@@ -36,44 +37,60 @@ const SIX = build(
    MARKER]
 );
 
-test("5-paragraph newsletter maps every field", () => {
+// 4-paragraph body: schluss injected as fixed formula.
+const FOUR = build(
+  ["Betreff: Vier Absätze", "Preheader: Kurz", "Titel: Kompakt"],
+  ["Geschichte-Satz.",
+   "Analyse-Satz.",
+   "Spur-Satz.",
+   "Conclusio-Satz."]
+);
+
+test("5-paragraph canonical mapping", () => {
   const r = parseNewsletter(FIVE);
   assert.equal(r.ok, true);
   const f = r.fields;
-  assert.equal(f.subject, "Wenn Stille teurer wird als Streit");
-  assert.equal(f.preheader, "Warum Schweigen selten spart");
+  assert.equal(f.subject,  "Wenn Stille teurer wird als Streit");
+  assert.equal(f.preheader,"Warum Schweigen selten spart");
   assert.equal(f.headline, "Die Kosten des Nichtgesagten");
-  assert.equal(f.story, "Ein Paar sitzt am Küchentisch und sagt nichts.");
-  assert.equal(f.analyse, "Schweigen wirkt wie Sparen, kostet aber Zinsen.");
-  assert.equal(f.spur, "Wer früh spricht, zahlt weniger Aufschlag.");
-  assert.equal(f.spur_1, "Wer früh spricht, zahlt weniger Aufschlag.");
-  assert.equal(f.spur_2, "");
-  assert.equal(f.conclusio, "Am Ende bleibt die Frage, was Nähe wirklich wert ist.");
-  assert.equal(f.schluss, MARKER);
+  assert.equal(f.story,    "Ein Paar sitzt am Küchentisch und sagt nichts.");
+  assert.equal(f.analyse,  "Schweigen wirkt wie Sparen, kostet aber Zinsen.");
+  assert.equal(f.spur,     "Wer früh spricht, zahlt weniger Aufschlag.");
+  assert.equal(f.pointe,   "Am Ende bleibt die Frage, was Nähe wirklich wert ist.");
+  assert.equal(f.schluss,  MARKER);
 });
 
-test("6-paragraph newsletter joins the two Spur paragraphs with a blank line", () => {
+test("6-paragraph fallback: joins two Spur paragraphs", () => {
   const r = parseNewsletter(SIX);
   assert.equal(r.ok, true);
   const f = r.fields;
-  assert.equal(f.subject, "Zweites Beispiel");
-  assert.equal(f.preheader, "Mit längerer Spur");
+  assert.equal(f.subject,  "Zweites Beispiel");
+  assert.equal(f.preheader,"Mit längerer Spur");
   assert.equal(f.headline, "Sechs Absätze");
-  assert.equal(f.story, "Geschichte-Absatz.");
-  assert.equal(f.analyse, "Analyse-Absatz.");
-  assert.equal(f.spur, "Spur-Absatz eins.\n\nSpur-Absatz zwei.");
-  assert.equal(f.spur_1, "Spur-Absatz eins.");
-  assert.equal(f.spur_2, "Spur-Absatz zwei.");
-  assert.equal(f.conclusio, "Conclusio-Satz.");
-  assert.equal(f.schluss, MARKER);
+  assert.equal(f.story,    "Geschichte-Absatz.");
+  assert.equal(f.analyse,  "Analyse-Absatz.");
+  assert.equal(f.spur,     "Spur-Absatz eins.\n\nSpur-Absatz zwei.");
+  assert.equal(f.pointe,   "Conclusio-Satz.");
+  assert.equal(f.schluss,  MARKER);
+});
+
+test("4-paragraph fallback: injects fixed schluss formula", () => {
+  const r = parseNewsletter(FOUR);
+  assert.equal(r.ok, true);
+  const f = r.fields;
+  assert.equal(f.story,   "Geschichte-Satz.");
+  assert.equal(f.analyse, "Analyse-Satz.");
+  assert.equal(f.spur,    "Spur-Satz.");
+  assert.equal(f.pointe,  "Conclusio-Satz.");
+  assert.equal(f.schluss, FIXED_SCHLUSS);
 });
 
 test("runs of blank lines between paragraphs are collapsed", () => {
-  const messy = FIVE.replace(/\n\n/g, "\n\n\n"); // widen every gap to two blank lines
+  const messy = FIVE.replace(/\n\n/g, "\n\n\n");
   const r = parseNewsletter(messy);
   assert.equal(r.ok, true);
-  assert.equal(r.fields.story, "Ein Paar sitzt am Küchentisch und sagt nichts.");
-  assert.equal(r.fields.spur, "Wer früh spricht, zahlt weniger Aufschlag.");
+  assert.equal(r.fields.story,  "Ein Paar sitzt am Küchentisch und sagt nichts.");
+  assert.equal(r.fields.spur,   "Wer früh spricht, zahlt weniger Aufschlag.");
   assert.equal(r.fields.schluss, MARKER);
 });
 
@@ -90,19 +107,9 @@ test("rejects when a label is missing", () => {
   assert.match(r.reason, /Titel|Headline|Überschrift/);
 });
 
-test("rejects when there are fewer than 5 body paragraphs", () => {
-  const short = build(
-    ["Betreff: zu kurz", "Preheader: x", "Titel: y"],
-    ["Eins.", "Zwei.", "Drei.", MARKER] // 4 body paragraphs
-  );
-  const r = parseNewsletter(short);
-  assert.equal(r.ok, false);
-  assert.match(r.reason, /at least 5 body paragraphs/);
-});
-
-test("rejects when the final paragraph lacks the marker phrase", () => {
+test("missing marker phrase: logs silently and send proceeds", () => {
   const noMarker = FIVE.replace(MARKER, "Ein gewöhnlicher Schlusssatz ohne Marker.");
   const r = parseNewsletter(noMarker);
-  assert.equal(r.ok, false);
-  assert.match(r.reason, /final paragraph/);
+  assert.equal(r.ok, true);
+  assert.equal(r.fields.schluss, "Ein gewöhnlicher Schlusssatz ohne Marker.");
 });
