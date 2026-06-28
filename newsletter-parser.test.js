@@ -100,11 +100,11 @@ test("CRLF line endings are handled", () => {
   assert.equal(r.fields.schluss, MARKER);
 });
 
-test("rejects when a label is missing", () => {
+test("missing label: logs silently, headline field is empty string", () => {
   const noTitle = FIVE.split("\n").filter(l => !l.startsWith("Titel:")).join("\n");
   const r = parseNewsletter(noTitle);
-  assert.equal(r.ok, false);
-  assert.match(r.reason, /Titel|Headline|Überschrift/);
+  assert.equal(r.ok, true);
+  assert.equal(r.fields.headline, "");
 });
 
 test("missing marker phrase: logs silently and send proceeds", () => {
