@@ -18,7 +18,8 @@
 //   <Conclusio>    P4 → pointe
 //   <Markersatz>   P5 → schluss
 //
-// Returns { ok: true, fields } or { ok: false, reason } (only for missing labels).
+// Always returns { ok: true, fields }. Structural issues are logged to the console
+// only — no error is ever surfaced to the user.
 (function (root) {
   "use strict";
 
@@ -90,12 +91,13 @@
     var preheader = findLabel(/^\s*(?:Preheader|Vorschau)\s*:\s*(.*)$/i);
     var headline  = findLabel(/^\s*(?:Titel|Headline|Überschrift)\s*:\s*(.*)$/i);
 
-    if (!subject)   return { ok: false, reason: "missing Betreff/Subject label" };
-    if (!preheader) return { ok: false, reason: "missing Preheader/Vorschau label" };
-    if (!headline)  return { ok: false, reason: "missing Titel/Headline/Überschrift label" };
+    if (!subject)   console.log("[newsletter-parser] missing Betreff/Subject label");
+    if (!preheader) console.log("[newsletter-parser] missing Preheader/Vorschau label");
+    if (!headline)  console.log("[newsletter-parser] missing Titel/Headline/Überschrift label");
 
-    // body = everything after the headline line; split on blank lines (runs collapsed).
-    var bodyText = lines.slice(headline.idx + 1).join("\n");
+    // body = everything after the headline line (or the full text if no headline found).
+    var bodyStart = headline ? headline.idx + 1 : 0;
+    var bodyText = lines.slice(bodyStart).join("\n");
     var paras = bodyText
       .split(/\n[ \t]*\n+/)
       .map(function (p) { return p.trim(); })
@@ -110,9 +112,9 @@
     return {
       ok: true,
       fields: {
-        subject:  subject.value,
-        preheader: preheader.value,
-        headline: headline.value,
+        subject:  subject  ? subject.value  : "",
+        preheader: preheader ? preheader.value : "",
+        headline: headline ? headline.value : "",
         story:    body.story,
         analyse:  body.analyse,
         spur:     body.spur,
