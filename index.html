@@ -52,6 +52,13 @@
     background: var(--bg); cursor: pointer; font-size: 13.5px; color: var(--ink); }
   #settingsBtn:hover { border-color: var(--accent); color: var(--accent); }
 
+  /* Tab bar */
+  #tabBar { display: flex; border-bottom: 1px solid var(--line); background: var(--panel); flex-shrink: 0; }
+  .tab-btn { padding: 11px 20px; border: none; border-bottom: 2px solid transparent; background: none;
+    cursor: pointer; font-size: 13.5px; font-weight: 600; color: var(--muted); margin-bottom: -1px; line-height: 1; }
+  .tab-btn:hover { color: var(--ink); }
+  .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+
   /* Main */
   #main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
   #banner { display: none; background: #fff3cd; color: #6b5400; border-bottom: 1px solid #f0e0a8;
@@ -118,6 +125,8 @@
   .kfile .kdel { cursor: pointer; color: var(--muted); border: none; background: none; font-size: 16px; line-height: 1; }
   .kfile .kdel:hover { color: var(--err); }
   code.k { background: #f0ede7; padding: 1px 5px; border-radius: 4px; font-family: ui-monospace, monospace; font-size: 12px; }
+  .tab-section-head { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .7px;
+    color: var(--accent); padding: 14px 0 10px; border-top: 1px solid var(--line); margin-top: 4px; }
 </style>
 </head>
 <body>
@@ -135,6 +144,11 @@
 
   <main id="main">
     <div id="banner"></div>
+    <div id="tabBar">
+      <button class="tab-btn active" data-tab="0">Newsletter</button>
+      <button class="tab-btn" data-tab="1">LinkedIn</button>
+      <button class="tab-btn" data-tab="2">Blog</button>
+    </div>
     <div id="messages"></div>
     <div id="composer">
       <div class="composer-inner">
@@ -153,6 +167,7 @@
         <button class="x" id="closeModal">×</button>
       </header>
       <div class="content">
+
         <div class="field">
           <label data-i18n="lang_label">Language</label>
           <select id="set-lang">
@@ -178,6 +193,9 @@
           <input type="password" id="set-apiKey" placeholder="sk-ant-…" autocomplete="off" />
         </div>
 
+        <!-- Per-tab settings section -->
+        <div id="tabSectionHead" class="tab-section-head"></div>
+
         <div class="field">
           <label data-i18n="instructions_label">Project instructions (system prompt)</label>
           <div class="desc" data-i18n="instructions_desc">Paste the custom instructions from your Claude.ai Project here. They are sent as the system prompt on every message in every chat.</div>
@@ -195,7 +213,7 @@
 
         <div class="field">
           <label data-i18n="webhook_label">make.com webhook URL</label>
-          <div class="desc" data-i18n-html="webhook_desc">Custom Webhook trigger URL from your make.com scenario. The newsletter is parsed and POSTed as JSON fields: <code class="k">subject</code>, <code class="k">preheader</code>, <code class="k">headline</code>, <code class="k">story</code>, <code class="k">analyse</code>, <code class="k">spur</code>, <code class="k">pointe</code>, <code class="k">schluss</code>.</div>
+          <div class="desc" id="webhookDesc"></div>
           <input type="text" id="set-webhookUrl" placeholder="https://hook.eu2.make.com/…" autocomplete="off" />
         </div>
 
@@ -218,7 +236,7 @@
 
         <div class="warn" data-i18n-html="warn">
           <strong>Heads up:</strong> this app calls the Claude API directly from your browser, so the key lives client-side.
-          Anyone using this page tab can read it via dev tools. Use a key you can rotate, and never hard-code it into the published HTML — Anthropic scans public GitHub and auto-revokes leaked keys.
+          Anyone using this page tab can read it via dev tools. Use a key you can rotate, and never hard-code it into the published HTML.
         </div>
       </div>
       <footer>
@@ -233,19 +251,21 @@
 (() => {
   "use strict";
 
-  const LS_SETTINGS = "cmw.settings.v1";
-  const LS_CHATS = "cmw.chats.v1";
-  const LS_KNOWLEDGE = "cmw.knowledge.v1";
-  const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
+  const TABS = ["Newsletter", "LinkedIn", "Blog"];
+  const LS_SETTINGS   = "cmw.settings.v1";
+  const LS_CHATS      = (i) => `cmw.chats.v1.${i}`;
+  const LS_KNOWLEDGE  = (i) => `cmw.knowledge.v1.${i}`;
+  const LS_ACTIVE_TAB = "cmw.activeTab";
+  const ANTHROPIC_URL     = "https://api.anthropic.com/v1/messages";
   const ANTHROPIC_VERSION = "2023-06-01";
 
+  const DEFAULT_TAB = () => ({ systemPrompt: "", webhookUrl: "" });
   const DEFAULT_SETTINGS = {
     apiKey: "",
-    systemPrompt: "",
-    webhookUrl: "",
     model: "claude-opus-4-8",
     maxTokens: 8192,
     lang: (navigator.language || "en").toLowerCase().startsWith("de") ? "de" : "en",
+    tabs: [DEFAULT_TAB(), DEFAULT_TAB(), DEFAULT_TAB()],
   };
 
   // ---------- i18n ----------
@@ -272,7 +292,8 @@
       ksize_suffix: " text",
       extracting: (name) => `Extracting ${name}…`,
       webhook_label: "make.com webhook URL",
-      webhook_desc: "Custom Webhook trigger URL from your make.com scenario. The newsletter is parsed and POSTed as JSON fields: <code class=\"k\">subject</code>, <code class=\"k\">preheader</code>, <code class=\"k\">headline</code>, <code class=\"k\">story</code>, <code class=\"k\">analyse</code>, <code class=\"k\">spur</code>, <code class=\"k\">pointe</code>, <code class=\"k\">schluss</code>.",
+      webhook_desc_newsletter: "Custom Webhook trigger URL from your make.com scenario. The newsletter is parsed and POSTed as JSON fields: <code class=\"k\">subject</code>, <code class=\"k\">preheader</code>, <code class=\"k\">headline</code>, <code class=\"k\">story</code>, <code class=\"k\">analyse</code>, <code class=\"k\">spur</code>, <code class=\"k\">pointe</code>, <code class=\"k\">schluss</code>.",
+      webhook_desc_raw: "Custom Webhook trigger URL from your make.com scenario. The reply text is POSTed as JSON: <code class=\"k\">output</code>.",
       model_label: "Model",
       maxtokens_label: "Max tokens",
       opt_opus: "Claude Opus 4.8 (most capable)",
@@ -282,7 +303,7 @@
       btn_cancel: "Cancel",
       btn_save: "Save",
       bundle_label: "Configuration bundle (.zip)",
-      bundle_desc: "Export everything (API key, webhook, instructions, knowledge) to a single .zip to hand off — or import one to configure this browser in one step. You can also drop raw .pdf/.docx/.txt files into the zip; they're imported as knowledge. ⚠ The .zip contains your API key in plain text — treat it like a password.",
+      bundle_desc: "Export everything (API key, all tabs' webhooks, instructions, knowledge) to a single .zip to hand off — or import one to configure this browser in one step. ⚠ The .zip contains your API key in plain text — treat it like a password.",
       btn_export: "⬇ Export bundle",
       btn_import: "⬆ Import bundle",
       exporting: "Building bundle…",
@@ -341,7 +362,8 @@
       ksize_suffix: " Text",
       extracting: (name) => `Extrahiere ${name}…`,
       webhook_label: "make.com-Webhook-URL",
-      webhook_desc: "Custom-Webhook-URL aus deinem make.com-Szenario. Der Newsletter wird geparst und als JSON gesendet: <code class=\"k\">subject</code>, <code class=\"k\">preheader</code>, <code class=\"k\">headline</code>, <code class=\"k\">story</code>, <code class=\"k\">analyse</code>, <code class=\"k\">spur</code>, <code class=\"k\">pointe</code>, <code class=\"k\">schluss</code>.",
+      webhook_desc_newsletter: "Custom-Webhook-URL aus deinem make.com-Szenario. Der Newsletter wird geparst und als JSON gesendet: <code class=\"k\">subject</code>, <code class=\"k\">preheader</code>, <code class=\"k\">headline</code>, <code class=\"k\">story</code>, <code class=\"k\">analyse</code>, <code class=\"k\">spur</code>, <code class=\"k\">pointe</code>, <code class=\"k\">schluss</code>.",
+      webhook_desc_raw: "Custom-Webhook-URL aus deinem make.com-Szenario. Der Antworttext wird als JSON gesendet: <code class=\"k\">output</code>.",
       model_label: "Modell",
       maxtokens_label: "Max. Tokens",
       opt_opus: "Claude Opus 4.8 (am leistungsstärksten)",
@@ -351,7 +373,7 @@
       btn_cancel: "Abbrechen",
       btn_save: "Speichern",
       bundle_label: "Konfigurationspaket (.zip)",
-      bundle_desc: "Exportiere alles (API-Schlüssel, Webhook, Anweisungen, Wissen) in eine einzige .zip zum Weitergeben – oder importiere eine, um diesen Browser in einem Schritt einzurichten. Du kannst auch rohe .pdf/.docx/.txt-Dateien in die Zip legen; sie werden als Wissen importiert. ⚠ Die .zip enthält deinen API-Schlüssel im Klartext – behandle sie wie ein Passwort.",
+      bundle_desc: "Exportiere alles (API-Schlüssel, Webhooks aller Tabs, Anweisungen, Wissen) in eine einzige .zip zum Weitergeben – oder importiere eine, um diesen Browser in einem Schritt einzurichten. ⚠ Die .zip enthält deinen API-Schlüssel im Klartext – behandle sie wie ein Passwort.",
       btn_export: "⬇ Paket exportieren",
       btn_import: "⬆ Paket importieren",
       exporting: "Paket wird erstellt…",
@@ -404,18 +426,33 @@
   }
 
   // ---------- State ----------
-  let settings = loadSettings();
-  let chats = loadChats();          // [{id, title, messages:[{role, content, sentToMake?}], createdAt}]
-  let knowledge = loadKnowledge();  // [{id, name, size, text}]
-  let activeId = chats[0]?.id || null;
-  let streaming = false;
+  let settings     = loadSettings();
+  let activeTabIdx = loadActiveTab();
+  let chats        = loadChats(activeTabIdx);
+  let knowledge    = loadKnowledge(activeTabIdx);
+  let activeId     = chats[0]?.id || null;
+  let streaming    = false;
+
+  function currentTab() { return settings.tabs[activeTabIdx]; }
 
   function loadSettings() {
-    try { return Object.assign({}, DEFAULT_SETTINGS, JSON.parse(localStorage.getItem(LS_SETTINGS) || "{}")); }
-    catch { return Object.assign({}, DEFAULT_SETTINGS); }
+    try {
+      const raw = JSON.parse(localStorage.getItem(LS_SETTINGS) || "{}");
+      const s = Object.assign({}, DEFAULT_SETTINGS, raw);
+      // Migrate from old flat format (no tabs array).
+      if (!Array.isArray(s.tabs) || s.tabs.length !== 3) {
+        s.tabs = [
+          { systemPrompt: raw.systemPrompt || "", webhookUrl: raw.webhookUrl || "" },
+          DEFAULT_TAB(),
+          DEFAULT_TAB(),
+        ];
+      }
+      // Ensure all 3 tabs exist and have required fields.
+      while (s.tabs.length < 3) s.tabs.push(DEFAULT_TAB());
+      s.tabs = s.tabs.map(tab => Object.assign({}, DEFAULT_TAB(), tab));
+      return s;
+    } catch { return Object.assign({}, DEFAULT_SETTINGS); }
   }
-  // True if localStorage can actually be written (sandboxed previews / private
-  // windows can block it, which would otherwise make saves fail silently).
   function storageAvailable() {
     try { localStorage.setItem("__cmw_probe__", "1"); localStorage.removeItem("__cmw_probe__"); return true; }
     catch { return false; }
@@ -424,17 +461,28 @@
     try { localStorage.setItem(LS_SETTINGS, JSON.stringify(settings)); return true; }
     catch { return false; }
   }
-  function loadChats() {
-    try { const c = JSON.parse(localStorage.getItem(LS_CHATS) || "[]"); return Array.isArray(c) ? c : []; }
+  function loadActiveTab() {
+    try { const i = Number(localStorage.getItem(LS_ACTIVE_TAB) || 0); return (i >= 0 && i < TABS.length) ? i : 0; }
+    catch { return 0; }
+  }
+  function loadChats(i) {
+    // Migrate from old single-key format on first load of tab 0.
+    if (i === 0 && !localStorage.getItem(LS_CHATS(0)) && localStorage.getItem("cmw.chats.v1")) {
+      localStorage.setItem(LS_CHATS(0), localStorage.getItem("cmw.chats.v1"));
+    }
+    try { const c = JSON.parse(localStorage.getItem(LS_CHATS(i)) || "[]"); return Array.isArray(c) ? c : []; }
     catch { return []; }
   }
-  function saveChats() { try { localStorage.setItem(LS_CHATS, JSON.stringify(chats)); } catch {} }
-  function loadKnowledge() {
-    try { const k = JSON.parse(localStorage.getItem(LS_KNOWLEDGE) || "[]"); return Array.isArray(k) ? k : []; }
+  function saveChats() { try { localStorage.setItem(LS_CHATS(activeTabIdx), JSON.stringify(chats)); } catch {} }
+  function loadKnowledge(i) {
+    if (i === 0 && !localStorage.getItem(LS_KNOWLEDGE(0)) && localStorage.getItem("cmw.knowledge.v1")) {
+      localStorage.setItem(LS_KNOWLEDGE(0), localStorage.getItem("cmw.knowledge.v1"));
+    }
+    try { const k = JSON.parse(localStorage.getItem(LS_KNOWLEDGE(i)) || "[]"); return Array.isArray(k) ? k : []; }
     catch { return []; }
   }
   function saveKnowledge() {
-    try { localStorage.setItem(LS_KNOWLEDGE, JSON.stringify(knowledge)); return true; }
+    try { localStorage.setItem(LS_KNOWLEDGE(activeTabIdx), JSON.stringify(knowledge)); return true; }
     catch (e) { alert(t("alert_storage_full", e.message)); return false; }
   }
   function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
@@ -444,9 +492,24 @@
   const $ = (id) => document.getElementById(id);
   const elChatList = $("chatList");
   const elMessages = $("messages");
-  const elInput = $("input");
-  const elSend = $("sendBtn");
-  const elBanner = $("banner");
+  const elInput    = $("input");
+  const elSend     = $("sendBtn");
+  const elBanner   = $("banner");
+
+  // ---------- Tab switching ----------
+  function switchTab(idx) {
+    if (idx === activeTabIdx) return;
+    saveChats();
+    activeTabIdx = idx;
+    localStorage.setItem(LS_ACTIVE_TAB, idx);
+    chats     = loadChats(idx);
+    knowledge = loadKnowledge(idx);
+    activeId  = chats[0]?.id || null;
+    document.querySelectorAll(".tab-btn").forEach(b => b.classList.toggle("active", Number(b.dataset.tab) === idx));
+    renderSidebar();
+    renderMessages();
+    refreshBanner();
+  }
 
   // ---------- Rendering ----------
   function renderSidebar() {
@@ -483,7 +546,6 @@
   function escapeHtml(s) {
     return s.replace(/[&<>]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[ch]));
   }
-  // Minimal, safe markdown: code fences, inline code, bold, line breaks (everything escaped first).
   function formatBody(text) {
     const fences = [];
     let t = text.replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) => {
@@ -557,7 +619,7 @@
     }
     const issues = [];
     if (!settings.apiKey) issues.push(t("missing_apikey"));
-    if (!settings.webhookUrl) issues.push(t("missing_webhook"));
+    if (!currentTab().webhookUrl) issues.push(t("missing_webhook"));
     if (issues.length) {
       const joined = issues.join(" " + t("and") + " ");
       elBanner.style.display = "block";
@@ -574,23 +636,24 @@
     const chat = activeChat();
     const m = chat?.messages[idx];
     if (!m) return;
-    if (!settings.webhookUrl) { alert(t("alert_set_webhook")); openModal(); return; }
+    if (!currentTab().webhookUrl) { alert(t("alert_set_webhook")); openModal(); return; }
 
-    // Deterministically split the newsletter into named fields (no LLM, no rewording).
-    // Abort — do not POST — if the structure isn't recognised, so a broken layout
-    // never ships to Brevo silently.
-    const parsed = parseNewsletter(m.content);
-    if (!parsed.ok) {
-      alert("Send aborted: newsletter structure not recognised — " + parsed.reason);
-      return;
+    let payload;
+    if (activeTabIdx === 0) {
+      // Newsletter tab: parse into structured fields.
+      const parsed = parseNewsletter(m.content);
+      payload = parsed.fields;
+    } else {
+      // LinkedIn / Blog: raw reply text.
+      payload = { output: m.content };
     }
 
     if (btn) { btn.disabled = true; btn.textContent = t("sending"); }
     try {
-      const res = await fetch(settings.webhookUrl, {
+      const res = await fetch(currentTab().webhookUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(parsed.fields),
+        body: JSON.stringify(payload),
       });
       if (!res.ok) throw new Error("HTTP " + res.status);
       m.sentToMake = true; saveChats();
@@ -630,7 +693,7 @@
     const name = file.name.toLowerCase();
     if (name.endsWith(".pdf")) return extractPdf(file);
     if (name.endsWith(".docx")) return extractDocx(file);
-    return (await file.text()).trim(); // text / md / csv / code
+    return (await file.text()).trim();
   }
   function humanSize(n) {
     if (n < 1024) return n + " B";
@@ -638,11 +701,10 @@
     return (n / 1024 / 1024).toFixed(1) + " MB";
   }
 
-  // Assemble the system prompt from instructions + knowledge, with a cache breakpoint
-  // (stable across messages → ~90% cheaper to resend). Returns undefined if both empty.
   function buildSystem() {
+    const tab = currentTab();
     const parts = [];
-    if (settings.systemPrompt.trim()) parts.push(settings.systemPrompt.trim());
+    if (tab.systemPrompt.trim()) parts.push(tab.systemPrompt.trim());
     if (knowledge.length) {
       parts.push(
         "# Reference documents\n\nThe following documents are provided as background knowledge. " +
@@ -655,7 +717,7 @@
     return [{ type: "text", text, cache_control: { type: "ephemeral" } }];
   }
 
-  // ---------- Config bundle (export / import) ----------
+  // ---------- Config bundle ----------
   async function loadJSZip() {
     await loadScript("https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js");
     return window.JSZip;
@@ -674,22 +736,28 @@
     try {
       const JSZip = await loadJSZip();
       const zip = new JSZip();
+      const allKnowledge = TABS.map((_, i) => {
+        try { const k = JSON.parse(localStorage.getItem(LS_KNOWLEDGE(i)) || "[]"); return Array.isArray(k) ? k : []; }
+        catch { return []; }
+      });
       const bundle = {
-        version: 1,
+        version: 2,
         exportedAt: new Date().toISOString(),
         settings: {
           apiKey: settings.apiKey,
-          webhookUrl: settings.webhookUrl,
-          systemPrompt: settings.systemPrompt,
           model: settings.model,
           maxTokens: settings.maxTokens,
           lang: settings.lang,
+          tabs: settings.tabs.map(tab => ({ systemPrompt: tab.systemPrompt, webhookUrl: tab.webhookUrl })),
         },
-        knowledge: knowledge.map(k => ({ name: k.name, text: k.text })),
+        knowledge: allKnowledge.map(k => k.map(f => ({ name: f.name, text: f.text }))),
       };
       zip.file("config.json", JSON.stringify(bundle, null, 2));
-      // Also drop human-readable copies of each knowledge doc for transparency.
-      knowledge.forEach(k => zip.file("knowledge/" + k.name.replace(/[\\/]/g, "_") + ".txt", k.text));
+      TABS.forEach((name, i) => {
+        allKnowledge[i].forEach(k =>
+          zip.file(`knowledge/${name.toLowerCase()}/${k.name.replace(/[\\/]/g, "_")}.txt`, k.text)
+        );
+      });
       const blob = await zip.generateAsync({ type: "blob" });
       downloadBlob(blob, "claude-wrapper-config.zip");
       status.textContent = t("export_done");
@@ -706,41 +774,67 @@
       const zip = await JSZip.loadAsync(file);
       let knowledgeCount = 0;
 
-      // 1) Apply config.json (settings + embedded knowledge), if present.
       const cfg = zip.file("config.json");
       if (cfg) {
         const bundle = JSON.parse(await cfg.async("string"));
-        const s = bundle.settings || bundle; // tolerate flat shape
+        const s = bundle.settings || bundle;
+
         settings = Object.assign({}, DEFAULT_SETTINGS, settings, {
-          apiKey: s.apiKey ?? settings.apiKey,
-          webhookUrl: s.webhookUrl ?? settings.webhookUrl,
-          systemPrompt: s.systemPrompt ?? settings.systemPrompt,
-          model: s.model ?? settings.model,
+          apiKey:    s.apiKey    ?? settings.apiKey,
+          model:     s.model     ?? settings.model,
           maxTokens: Math.max(256, Number(s.maxTokens) || settings.maxTokens),
-          lang: (s.lang === "de" || s.lang === "en") ? s.lang : settings.lang,
+          lang:      (s.lang === "de" || s.lang === "en") ? s.lang : settings.lang,
         });
-        if (Array.isArray(bundle.knowledge)) {
-          for (const k of bundle.knowledge) {
-            if (k && k.name && typeof k.text === "string" && k.text) {
+
+        if (Array.isArray(s.tabs) && s.tabs.length === 3) {
+          // v2 bundle: apply all 3 tabs.
+          s.tabs.forEach((tab, i) => {
+            settings.tabs[i].systemPrompt = tab.systemPrompt ?? settings.tabs[i].systemPrompt;
+            settings.tabs[i].webhookUrl   = tab.webhookUrl   ?? settings.tabs[i].webhookUrl;
+          });
+        } else {
+          // v1 bundle: apply to current tab.
+          if (s.systemPrompt != null) currentTab().systemPrompt = s.systemPrompt;
+          if (s.webhookUrl   != null) currentTab().webhookUrl   = s.webhookUrl;
+        }
+
+        // Knowledge: v2 is array-of-arrays, v1 is flat array.
+        if (Array.isArray(bundle.knowledge) && Array.isArray(bundle.knowledge[0])) {
+          // v2
+          bundle.knowledge.forEach((tabK, i) => {
+            if (!Array.isArray(tabK)) return;
+            const existing = loadKnowledge(i);
+            tabK.forEach(k => {
+              if (k?.name && typeof k.text === "string" && k.text) {
+                existing.push({ id: uid(), name: k.name, size: k.text.length, text: k.text });
+                knowledgeCount++;
+              }
+            });
+            try { localStorage.setItem(LS_KNOWLEDGE(i), JSON.stringify(existing)); } catch {}
+          });
+          knowledge = loadKnowledge(activeTabIdx);
+        } else if (Array.isArray(bundle.knowledge)) {
+          // v1: add to current tab
+          bundle.knowledge.forEach(k => {
+            if (k?.name && typeof k.text === "string" && k.text) {
               knowledge.push({ id: uid(), name: k.name, size: k.text.length, text: k.text });
               knowledgeCount++;
             }
-          }
+          });
+          saveKnowledge();
         }
       }
 
-      // 2) Ingest any other files in the zip (raw attachments) as knowledge.
-      //    Skips config.json and the knowledge/*.txt copies that mirror config.json.
-      const skipMirror = !!cfg;
+      // Raw attachments not in knowledge/ dirs.
       const entries = Object.values(zip.files).filter(f =>
-        !f.dir && f.name !== "config.json" && !(skipMirror && f.name.startsWith("knowledge/")));
+        !f.dir && f.name !== "config.json" && !f.name.startsWith("knowledge/"));
       for (const entry of entries) {
         try {
           const blob = await entry.async("blob");
           const base = entry.name.split("/").pop();
           const text = await extractFile(new File([blob], base));
           if (text) { knowledge.push({ id: uid(), name: base, size: blob.size, text }); knowledgeCount++; }
-        } catch { /* skip unreadable entry */ }
+        } catch { /* skip */ }
       }
 
       saveSettings();
@@ -821,7 +915,6 @@
     elInput.value = ""; autosize();
     saveChats(); renderSidebar(); renderMessages();
 
-    // Placeholder assistant message we stream into.
     const assistant = { role: "assistant", content: "" };
     chat.messages.push(assistant);
     renderMessages();
@@ -829,7 +922,7 @@
 
     streaming = true; elSend.disabled = true; elSend.textContent = "…";
     const apiMessages = chat.messages
-      .filter(m => m !== assistant) // everything except the empty placeholder we're streaming into
+      .filter(m => m !== assistant)
       .map(m => ({ role: m.role, content: m.content }));
 
     try {
@@ -902,12 +995,21 @@
 
   // ---------- Settings modal ----------
   function fillSettingsForm() {
-    $("set-lang").value = settings.lang;
-    $("set-apiKey").value = settings.apiKey;
-    $("set-systemPrompt").value = settings.systemPrompt;
-    $("set-webhookUrl").value = settings.webhookUrl;
-    $("set-model").value = settings.model;
-    $("set-maxTokens").value = settings.maxTokens;
+    $("set-lang").value       = settings.lang;
+    $("set-apiKey").value     = settings.apiKey;
+    $("set-model").value      = settings.model;
+    $("set-maxTokens").value  = settings.maxTokens;
+    $("set-systemPrompt").value = currentTab().systemPrompt;
+    $("set-webhookUrl").value   = currentTab().webhookUrl;
+
+    // Per-tab section heading.
+    $("tabSectionHead").textContent = TABS[activeTabIdx];
+
+    // Webhook description depends on tab type.
+    $("webhookDesc").innerHTML = activeTabIdx === 0
+      ? t("webhook_desc_newsletter")
+      : t("webhook_desc_raw");
+
     renderKnowledge();
   }
   function openModal() {
@@ -917,24 +1019,27 @@
   }
   function closeModal() { $("overlay").classList.remove("open"); }
   function saveModal() {
-    settings.apiKey = $("set-apiKey").value.trim();
-    settings.systemPrompt = $("set-systemPrompt").value;
-    settings.webhookUrl = $("set-webhookUrl").value.trim();
-    settings.model = $("set-model").value;
+    settings.apiKey   = $("set-apiKey").value.trim();
+    settings.model    = $("set-model").value;
     settings.maxTokens = Math.max(256, Number($("set-maxTokens").value) || 8192);
+    currentTab().systemPrompt = $("set-systemPrompt").value;
+    currentTab().webhookUrl   = $("set-webhookUrl").value.trim();
     const ok = saveSettings();
     closeModal();
     refreshBanner();
     if (!ok) alert(t("storage_blocked"));
   }
 
-  // ---------- Composer behaviour ----------
+  // ---------- Composer ----------
   function autosize() {
     elInput.style.height = "auto";
     elInput.style.height = Math.min(elInput.scrollHeight, 200) + "px";
   }
 
   // ---------- Wire up ----------
+  document.querySelectorAll(".tab-btn").forEach(btn =>
+    btn.addEventListener("click", () => switchTab(Number(btn.dataset.tab)))
+  );
   $("newChatBtn").addEventListener("click", newChat);
   $("settingsBtn").addEventListener("click", openModal);
   $("closeModal").addEventListener("click", closeModal);
@@ -956,6 +1061,10 @@
   });
 
   // ---------- Init ----------
+  // Restore active tab button state.
+  document.querySelectorAll(".tab-btn").forEach(b =>
+    b.classList.toggle("active", Number(b.dataset.tab) === activeTabIdx)
+  );
   applyI18n();
   renderSidebar();
   renderMessages();
