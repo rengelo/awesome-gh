@@ -28,8 +28,8 @@
 
   /* Sidebar */
   #sidebar {
-    width: 260px; flex: 0 0 260px; background: var(--panel); border-right: 1px solid var(--line);
-    display: flex; flex-direction: column;
+    width: 260px; flex: 0 0 260px; background: var(--sidebar-theme, var(--panel)); border-right: 1px solid var(--line);
+    display: flex; flex-direction: column; transition: background .2s;
   }
   #sidebar header { padding: 14px 16px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 8px; }
   #sidebar header .logo { width: 26px; height: 26px; border-radius: 7px; background: var(--accent); color: var(--accent-ink);
@@ -57,7 +57,7 @@
   .tab-btn { padding: 11px 20px; border: none; border-bottom: 2px solid transparent; background: none;
     cursor: pointer; font-size: 13.5px; font-weight: 600; color: var(--muted); margin-bottom: -1px; line-height: 1; }
   .tab-btn:hover { color: var(--ink); }
-  .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab-btn.active { color: var(--tab-color, var(--accent)); border-bottom-color: var(--tab-color, var(--accent)); }
 
   /* Main */
   #main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
@@ -163,7 +163,7 @@
   <div id="overlay">
     <div id="modal">
       <header>
-        <h2 data-i18n="settings_title">Settings</h2>
+        <h2 id="modalTitle">Settings</h2>
         <button class="x" id="closeModal">×</button>
       </header>
       <div class="content">
@@ -252,6 +252,11 @@
   "use strict";
 
   const TABS = ["Newsletter", "LinkedIn", "Blog"];
+  const TAB_THEMES = [
+    { sidebarBg: "#E7ECEC", tabColor: "#153F3D" },  // Newsletter: washed teal
+    { sidebarBg: "#D7E9FB", tabColor: "#1A5FA8" },  // LinkedIn: light blue
+    { sidebarBg: "#C4BA9C", tabColor: "#6B5C40" },  // Blog: warm tan
+  ];
   const LS_SETTINGS   = "cmw.settings.v1";
   const LS_CHATS      = (i) => `cmw.chats.v1.${i}`;
   const LS_KNOWLEDGE  = (i) => `cmw.knowledge.v1.${i}`;
@@ -434,6 +439,11 @@
   let streaming    = false;
 
   function currentTab() { return settings.tabs[activeTabIdx]; }
+  function applyTheme(idx) {
+    const theme = TAB_THEMES[idx];
+    document.documentElement.style.setProperty("--sidebar-theme", theme.sidebarBg);
+    document.documentElement.style.setProperty("--tab-color", theme.tabColor);
+  }
 
   function loadSettings() {
     try {
@@ -506,6 +516,7 @@
     knowledge = loadKnowledge(idx);
     activeId  = chats[0]?.id || null;
     document.querySelectorAll(".tab-btn").forEach(b => b.classList.toggle("active", Number(b.dataset.tab) === idx));
+    applyTheme(idx);
     renderSidebar();
     renderMessages();
     refreshBanner();
@@ -1002,7 +1013,8 @@
     $("set-systemPrompt").value = currentTab().systemPrompt;
     $("set-webhookUrl").value   = currentTab().webhookUrl;
 
-    // Per-tab section heading.
+    // Modal title and per-tab section heading.
+    $("modalTitle").textContent = TABS[activeTabIdx] + " — " + t("settings_title");
     $("tabSectionHead").textContent = TABS[activeTabIdx];
 
     // Webhook description depends on tab type.
@@ -1061,10 +1073,11 @@
   });
 
   // ---------- Init ----------
-  // Restore active tab button state.
+  // Restore active tab button state and theme.
   document.querySelectorAll(".tab-btn").forEach(b =>
     b.classList.toggle("active", Number(b.dataset.tab) === activeTabIdx)
   );
+  applyTheme(activeTabIdx);
   applyI18n();
   renderSidebar();
   renderMessages();
