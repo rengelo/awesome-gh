@@ -561,12 +561,12 @@
     const fences = [];
     let t = text.replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) => {
       fences.push(`<pre><code>${escapeHtml(code.replace(/\n$/, ""))}</code></pre>`);
-      return `${fences.length - 1}`;
+      return `\x00FENCE${fences.length - 1}\x00`;
     });
     t = escapeHtml(t);
     t = t.replace(/`([^`\n]+)`/g, (_, c) => `<code>${c}</code>`);
     t = t.replace(/\*\*([^*\n]+)\*\*/g, (_, b) => `<strong>${b}</strong>`);
-    t = t.replace(/(\d+)/g, (_, i) => fences[+i]);
+    t = t.replace(/\x00FENCE(\d+)\x00/g, (_, i) => fences[+i]);
     return t;
   }
 
