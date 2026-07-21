@@ -127,6 +127,17 @@
   code.k { background: #f0ede7; padding: 1px 5px; border-radius: 4px; font-family: ui-monospace, monospace; font-size: 12px; }
   .tab-section-head { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .7px;
     color: var(--accent); padding: 14px 0 10px; border-top: 1px solid var(--line); margin-top: 4px; }
+
+  /* Newsletter structure panel */
+  .struct-panel { display: none; margin-top: 12px; border: 1px solid var(--line); border-radius: var(--radius);
+    overflow: hidden; font-size: 14px; }
+  .struct-panel.open { display: block; }
+  .struct-field { display: flex; border-bottom: 1px solid var(--line); }
+  .struct-field:last-child { border-bottom: none; }
+  .struct-label { flex: 0 0 110px; padding: 9px 12px; font-size: 11.5px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .5px; color: var(--muted); background: var(--bg);
+    border-right: 1px solid var(--line); white-space: nowrap; }
+  .struct-value { flex: 1; padding: 9px 12px; line-height: 1.55; white-space: pre-wrap; word-wrap: break-word; color: var(--ink); }
 </style>
 </head>
 <body>
@@ -616,7 +627,52 @@
         copy.textContent = t("copied"); setTimeout(() => copy.textContent = t("copy"), 1200);
       });
       actions.appendChild(send); actions.appendChild(copy);
-      msg.appendChild(actions);
+
+      // Newsletter-only: structure breakdown toggle
+      if (activeTabIdx === 0) {
+        const STRUCT_LABELS = [
+          ["subject",   "Betreff"],
+          ["preheader", "Preheader"],
+          ["headline",  "Titel"],
+          ["story",     "Geschichte"],
+          ["analyse",   "Analyse"],
+          ["spur",      "Spur"],
+          ["pointe",    "Conclusio"],
+          ["schluss",   "Markersatz"],
+        ];
+        const structBtn = document.createElement("button");
+        structBtn.className = "pill";
+        structBtn.textContent = "Struktur";
+        const panel = document.createElement("div");
+        panel.className = "struct-panel";
+        structBtn.addEventListener("click", () => {
+          if (panel.classList.toggle("open")) {
+            if (!panel.childNodes.length) {
+              const parsed = parseNewsletter(m.content);
+              STRUCT_LABELS.forEach(([key, label]) => {
+                const field = document.createElement("div");
+                field.className = "struct-field";
+                const lbl = document.createElement("div");
+                lbl.className = "struct-label";
+                lbl.textContent = label;
+                const val = document.createElement("div");
+                val.className = "struct-value";
+                val.textContent = parsed.fields[key] || "—";
+                field.appendChild(lbl); field.appendChild(val);
+                panel.appendChild(field);
+              });
+            }
+            structBtn.textContent = "Struktur ▲";
+          } else {
+            structBtn.textContent = "Struktur";
+          }
+        });
+        actions.appendChild(structBtn);
+        msg.appendChild(actions);
+        msg.appendChild(panel);
+      } else {
+        msg.appendChild(actions);
+      }
     }
     row.appendChild(msg);
     return row;
