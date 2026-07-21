@@ -3,20 +3,21 @@
 // byte-for-byte (only surrounding whitespace is trimmed). Used by the
 // "Send to make.com" path to split the reply into named fields.
 //
-// Always produces exactly 5 body fields: story, analyse, spur, pointe, schluss.
+// Always produces exactly 6 body fields: hook, story, analyse, spur, pointe, schluss.
 // Paragraph-count fallbacks (see mapParagraphs) handle structural variation
 // silently — no error is ever surfaced to the user for body shape mismatches.
 //
-// Newsletter shape (canonical — 5 body paragraphs):
+// Newsletter shape (canonical — 6 body paragraphs):
 //   Betreff: <subject>
 //   Preheader: <preheader>
 //   Titel: <headline>
 //   <blank line>
-//   <Geschichte>   P1 → story
-//   <Analyse>      P2 → analyse
-//   <Spur>         P3 → spur
-//   <Conclusio>    P4 → pointe
-//   <Markersatz>   P5 → schluss
+//   <Hook>         P1 → hook    (1-2 sentences)
+//   <Geschichte>   P2 → story
+//   <Analyse>      P3 → analyse
+//   <Spur>         P4 → spur
+//   <Conclusio>    P5 → pointe
+//   <Markersatz>   P6 → schluss
 //
 // Always returns { ok: true, fields }. Structural issues are logged to the console
 // only — no error is ever surfaced to the user.
@@ -29,31 +30,46 @@
   function mapParagraphs(paras) {
     var len = paras.length;
 
-    // Canonical 5-paragraph shape.
-    if (len === 5) {
-      return {
-        story:   paras[0],
-        analyse: paras[1],
-        spur:    paras[2],
-        pointe:  paras[3],
-        schluss: paras[4]
-      };
-    }
-
-    // 6 paragraphs: merge P3 + P4 into spur.
+    // Canonical 6-paragraph shape.
     if (len === 6) {
       return {
-        story:   paras[0],
-        analyse: paras[1],
-        spur:    paras[2] + "\n\n" + paras[3],
+        hook:    paras[0],
+        story:   paras[1],
+        analyse: paras[2],
+        spur:    paras[3],
         pointe:  paras[4],
         schluss: paras[5]
       };
     }
 
-    // 4 paragraphs: inject the fixed schluss formula.
+    // 7 paragraphs: spur spans two paragraphs — merge P4 + P5.
+    if (len === 7) {
+      return {
+        hook:    paras[0],
+        story:   paras[1],
+        analyse: paras[2],
+        spur:    paras[3] + "\n\n" + paras[4],
+        pointe:  paras[5],
+        schluss: paras[6]
+      };
+    }
+
+    // 5 paragraphs: schluss missing — inject fixed formula.
+    if (len === 5) {
+      return {
+        hook:    paras[0],
+        story:   paras[1],
+        analyse: paras[2],
+        spur:    paras[3],
+        pointe:  paras[4],
+        schluss: FIXED_SCHLUSS
+      };
+    }
+
+    // 4 paragraphs: no hook, no schluss (old shape) — hook empty, inject fixed formula.
     if (len === 4) {
       return {
+        hook:    "",
         story:   paras[0],
         analyse: paras[1],
         spur:    paras[2],
@@ -62,14 +78,14 @@
       };
     }
 
-    // Best-effort for any other count (3 or fewer, 7 or more).
-    // Middle paragraphs (beyond P2 and before the last two) are appended to spur.
+    // Best-effort for any other count.
     console.log("[newsletter-parser] unexpected paragraph count: " + len);
-    var spurEnd = Math.max(2, len - 2);
+    var spurEnd = Math.max(3, len - 2);
     return {
-      story:   paras[0] || "",
-      analyse: paras[1] || "",
-      spur:    paras.slice(2, spurEnd).join("\n\n"),
+      hook:    paras[0] || "",
+      story:   paras[1] || "",
+      analyse: paras[2] || "",
+      spur:    paras.slice(3, spurEnd).join("\n\n"),
       pointe:  paras[len - 2] || "",
       schluss: paras[len - 1] || ""
     };
@@ -112,14 +128,15 @@
     return {
       ok: true,
       fields: {
-        subject:  subject  ? subject.value  : "",
+        subject:   subject   ? subject.value   : "",
         preheader: preheader ? preheader.value : "",
-        headline: headline ? headline.value : "",
-        story:    body.story,
-        analyse:  body.analyse,
-        spur:     body.spur,
-        pointe:   body.pointe,
-        schluss:  body.schluss
+        headline:  headline  ? headline.value  : "",
+        hook:      body.hook,
+        story:     body.story,
+        analyse:   body.analyse,
+        spur:      body.spur,
+        pointe:    body.pointe,
+        schluss:   body.schluss
       }
     };
   }
