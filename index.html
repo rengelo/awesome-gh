@@ -1122,7 +1122,6 @@
     settings.lang = e.target.value; saveSettings();
     applyI18n(); renderSidebar(); renderMessages(); refreshBanner();
   });
-  $("overlay").addEventListener("click", (e) => { if (e.target.id === "overlay") closeModal(); });
   elSend.addEventListener("click", send);
   elInput.addEventListener("input", autosize);
   elInput.addEventListener("keydown", (e) => {
