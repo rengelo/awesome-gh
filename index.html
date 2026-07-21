@@ -609,7 +609,7 @@
     who.textContent = m.role === "user" ? t("who_you") : "Claude";
     const body = document.createElement("div");
     body.className = "body";
-    body.innerHTML = formatBody(m.content);
+    body.innerHTML = formatBody(stripTags(m.content));
     msg.appendChild(who); msg.appendChild(body);
 
     if (m.role === "assistant") {
@@ -623,23 +623,24 @@
       copy.className = "pill";
       copy.textContent = t("copy");
       copy.addEventListener("click", () => {
-        navigator.clipboard.writeText(m.content);
+        navigator.clipboard.writeText(stripTags(m.content));
         copy.textContent = t("copied"); setTimeout(() => copy.textContent = t("copy"), 1200);
       });
       actions.appendChild(send); actions.appendChild(copy);
 
       // Newsletter-only: structure breakdown toggle
       if (activeTabIdx === 0) {
-        const STRUCT_LABELS = [
-          ["subject",   "Betreff"],
-          ["preheader", "Preheader"],
-          ["headline",  "Titel"],
-          ["hook",      "Hook"],
-          ["story",     "Geschichte"],
-          ["analyse",   "Analyse"],
-          ["spur",      "Spur"],
-          ["pointe",    "Conclusio"],
-          ["schluss",   "Markersatz"],
+        const STRUCT_ROWS = [
+          ["Betreff",     (h, s) => h.betreff],
+          ["Preheader",   (h, s) => h.preheader],
+          ["Titel",       (h, s) => h.titel],
+          ["Hook",        (h, s) => s.hook],
+          ["Geschichte",  (h, s) => s.geschichte],
+          ["Analyse",     (h, s) => s.analyse],
+          ["Spur",        (h, s) => s.spur],
+          ["Conclusio",   (h, s) => s.conclusio],
+          ["Markersatz",  (h, s) => s.markersatz],
+          ["Schlusssatz", (h, s) => s.schlusssatz],
         ];
         const structBtn = document.createElement("button");
         structBtn.className = "pill";
@@ -649,8 +650,8 @@
         structBtn.addEventListener("click", () => {
           if (panel.classList.toggle("open")) {
             if (!panel.childNodes.length) {
-              const parsed = parseNewsletter(m.content);
-              STRUCT_LABELS.forEach(([key, label]) => {
+              const { header, sections } = parseNewsletter(m.content);
+              STRUCT_ROWS.forEach(([label, getter]) => {
                 const field = document.createElement("div");
                 field.className = "struct-field";
                 const lbl = document.createElement("div");
@@ -658,7 +659,7 @@
                 lbl.textContent = label;
                 const val = document.createElement("div");
                 val.className = "struct-value";
-                val.textContent = parsed.fields[key] || "—";
+                val.textContent = getter(header, sections) || "—";
                 field.appendChild(lbl); field.appendChild(val);
                 panel.appendChild(field);
               });
@@ -708,9 +709,20 @@
 
     let payload;
     if (activeTabIdx === 0) {
-      // Newsletter tab: parse into structured fields.
-      const parsed = parseNewsletter(m.content);
-      payload = parsed.fields;
+      // Newsletter tab: parse tag-based structure into webhook fields.
+      const { header, sections } = parseNewsletter(m.content);
+      const schluss = [sections.markersatz, sections.schlusssatz].filter(Boolean).join("\n\n");
+      payload = {
+        subject:   header.betreff,
+        preheader: header.preheader,
+        headline:  header.titel,
+        hook:      sections.hook        || "",
+        story:     sections.geschichte  || "",
+        analyse:   sections.analyse     || "",
+        spur:      sections.spur        || "",
+        pointe:    sections.conclusio   || "",
+        schluss:   schluss,
+      };
     } else {
       // LinkedIn / Blog: raw reply text.
       payload = { output: m.content };
