@@ -275,6 +275,31 @@
   const ANTHROPIC_URL     = "https://api.anthropic.com/v1/messages";
   const ANTHROPIC_VERSION = "2023-06-01";
 
+  const CLEANER_PROMPT = `You are a strict German-language copy linter for Nancy Wayland's executive newsletter. You did NOT write the text you receive. Your only job is to find a fixed set of banned patterns and remove each one with the smallest possible edit. You are not an editor and not a co-writer. Do not improve the prose, do not restructure, do not change meaning, tone, or length beyond what removing a banned pattern strictly requires.
+
+Read the text as foreign material to inspect. Do not ask whether a sentence "reads well" or "sounds like Nancy". The presence of a banned token IS the defect, regardless of how good the line sounds.
+
+Preserve exactly, and never alter:
+- the three header lines (Betreff, Preheader, Titel),
+- every paragraph and its order (do not add, remove, merge, split, or reorder paragraphs; the output must have the same paragraph structure as the input),
+- the final sentence and any {{ contact.FIRSTNAME }} token, verbatim,
+- first-person pronouns INSIDE quotation marks (a quoted person may say "ich"; that is the speaker, not the author).
+
+Work the ENTIRE text, header lines included, ONE pattern at a time, as a literal search:
+
+1. "sondern": every occurrence is banned, including the split form where an earlier "nicht" in the sentence sets up the contrast, and the dash-plus-sondern form. Rewrite so the contrast is stated without "nicht ... sondern": two plain statements, or one positive statement.
+2. Dashes as a pause: every "–", every "—", and every "..." used as a stylistic pause. Replace with a comma or a full stop. Keep a dash only inside a direct quote or a number range.
+3. Sentence openings "Wer" + verb: rewrite as a named role. "Wer zehn Jahre fuehrt, ..." becomes "Ein CEO, der zehn Jahre fuehrt, ...". Check the Titel and the Conclusio specifically.
+4. Imagery words still, leise, laut, tragen (and forms traegt, getragen, trug): replace with a concrete verb or phrase. Keep only "laut" as the preposition meaning "according to" and the idiom "laut denken".
+5. Author "ich / mich / mir / mein" anywhere OUTSIDE the Spur: the author is visible only in the Spur paragraph(s). Remove first person from every other element, including the phrase "den ich seit Jahren kenne" in the Geschichte (rewrite to e.g. "Ein CEO sprach kuerzlich ..."). Do not touch first person inside quotation marks.
+6. Three-part parallel lists (X, Y, Z of the same shape) and runs of short subjectless fragments ("Nicht mued, nicht ueberarbeitet. Einfach ratlos."): fold them into one flowing sentence with commas and a finite verb.
+
+Rules:
+- Make the minimum change per hit. Prefer swapping or deleting the offending token over rewriting the whole sentence.
+- Never introduce a new banned pattern while fixing another.
+- Swiss High German: ss never ss-zet, real Umlauts ae/oe/ue written as ä/ö/ü.
+- Output ONLY the corrected newsletter, in the exact same format as the input (the Betreff, Preheader, Titel lines, then the body). No commentary, no notes, no explanation, no markdown fences. Nothing but the corrected newsletter.`;
+
   const DEFAULT_TAB = () => ({ systemPrompt: "", webhookUrl: "" });
   const DEFAULT_SETTINGS = {
     apiKey: "",
@@ -711,7 +736,7 @@
     if (activeTabIdx === 0) {
       // Newsletter tab: parse tag-based structure into webhook fields.
       const { header, sections } = parseNewsletter(m.content);
-      const schluss = [sections.markersatz, sections.schlusssatz].filter(Boolean).join("\n\n");
+      const schlussRaw = [sections.markersatz, sections.schlusssatz].filter(Boolean).join("\n\n");
       payload = {
         subject:   header.betreff,
         preheader: header.preheader,
@@ -721,7 +746,7 @@
         analyse:   sections.analyse     || "",
         spur:      sections.spur        || "",
         pointe:    sections.conclusio   || "",
-        schluss:   schluss,
+        schluss:   schlussRaw ? "{{ contact.FIRSTNAME }}, " + schlussRaw : "",
       };
     } else {
       // LinkedIn / Blog: raw reply text.
@@ -930,6 +955,70 @@
     }
   }
 
+  // ---------- Voice cleaner (Call B) ----------
+  function isNewsletter(text) {
+    return text.trimStart().startsWith("Betreff:");
+  }
+
+  function shouldSkipCleaner(userText) {
+    return /\b(behalte|lass|keep|genau so|exakt)\b/i.test(userText);
+  }
+
+  const VOICE_RE = [
+    /[–—]/,
+    /\.\.\./,
+    /\bsondern\b/i,
+    /\bWer\s+\w+/,
+    /\b(still|leise|trägt|tragen|getragen|trug)\b/i,
+    /ich seit Jahren kenne/i,
+  ];
+
+  function hasViolations(text) {
+    const hits = VOICE_RE.filter(re => re.test(text)).map(re => re.toString());
+    if (hits.length) console.log("[cleaner] residual patterns:", hits.join(", "));
+    return hits.length > 0;
+  }
+
+  async function callClaudeOnce(userText, systemText) {
+    const res = await fetch(ANTHROPIC_URL, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": settings.apiKey,
+        "anthropic-version": ANTHROPIC_VERSION,
+        "anthropic-dangerous-direct-browser-access": "true",
+      },
+      body: JSON.stringify({
+        model: settings.model,
+        max_tokens: 4096,
+        temperature: 0.2,
+        system: [{ type: "text", text: systemText }],
+        messages: [{ role: "user", content: userText }],
+      }),
+    });
+    if (!res.ok) throw new Error("Cleaner API " + res.status);
+    const j = await res.json();
+    const text = j.content?.[0]?.text || "";
+    if (!text) throw new Error("Cleaner returned empty response");
+    return text;
+  }
+
+  async function cleanNewsletter(draft) {
+    try {
+      let cleaned = await callClaudeOnce(draft, CLEANER_PROMPT);
+      if (hasViolations(cleaned)) {
+        console.log("[cleaner] pass 1 has residual violations — running pass 2");
+        const pass2 = await callClaudeOnce(cleaned, CLEANER_PROMPT);
+        if (hasViolations(pass2)) console.log("[cleaner] residual violations remain after pass 2 — showing best result");
+        cleaned = pass2;
+      }
+      return cleaned;
+    } catch (err) {
+      console.log("[cleaner] error, falling back to raw draft:", err.message);
+      return draft;
+    }
+  }
+
   // ---------- Claude streaming ----------
   async function streamClaude(messages, onDelta) {
     const system = buildSystem();
@@ -1008,9 +1097,13 @@
     try {
       await streamClaude(apiMessages, (delta) => {
         assistant.content += delta;
-        if (bodyEl) { bodyEl.innerHTML = formatBody(assistant.content); elMessages.scrollTop = elMessages.scrollHeight; }
+        if (bodyEl) { bodyEl.innerHTML = formatBody(stripTags(assistant.content)); elMessages.scrollTop = elMessages.scrollHeight; }
       });
       if (!assistant.content) assistant.content = t("empty_response");
+      // Call B: voice cleaner — Newsletter tab, real draft only, no explicit-keep instruction from Nancy.
+      if (activeTabIdx === 0 && isNewsletter(assistant.content) && !shouldSkipCleaner(text)) {
+        assistant.content = await cleanNewsletter(assistant.content);
+      }
     } catch (err) {
       assistant.content = "⚠️ " + err.message;
     } finally {
