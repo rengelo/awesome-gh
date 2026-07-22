@@ -969,10 +969,6 @@ Every field must be non-empty. The body fields (hook through schlusssatz) are th
   }
 
   // ---------- Voice cleaner (Call B) ----------
-  function isNewsletter(text) {
-    return text.trimStart().startsWith("Betreff:");
-  }
-
   function shouldSkipCleaner(userText) {
     return /\b(behalte|lass|keep|genau so|exakt)\b/i.test(userText);
   }
@@ -1139,10 +1135,15 @@ Every field must be non-empty. The body fields (hook through schlusssatz) are th
         if (bodyEl) { bodyEl.innerHTML = formatBody(stripTags(assistant.content)); elMessages.scrollTop = elMessages.scrollHeight; }
       });
       if (!assistant.content) assistant.content = t("empty_response");
-      // Call B: voice cleaner — Newsletter tab, real draft only, no explicit-keep instruction from Nancy.
-      if (activeTabIdx === 0 && isNewsletter(assistant.content) && !shouldSkipCleaner(text)) {
+      // Call B: voice cleaner — Newsletter tab only, no explicit-keep instruction from Nancy.
+      if (activeTabIdx === 0 && assistant.content.length > 200 && !shouldSkipCleaner(text)) {
         const result = await cleanNewsletter(assistant.content);
-        if (result) { assistant.parsedFields = result.fields; assistant.content = result.prose; }
+        if (result) {
+          assistant.parsedFields = result.fields;
+          assistant.content = result.prose;
+        } else {
+          assistant.parsedFields = positionParse(assistant.content);
+        }
       }
     } catch (err) {
       assistant.content = "⚠️ " + err.message;
