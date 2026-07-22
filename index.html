@@ -275,30 +275,43 @@
   const ANTHROPIC_URL     = "https://api.anthropic.com/v1/messages";
   const ANTHROPIC_VERSION = "2023-06-01";
 
-  const CLEANER_PROMPT = `You are a strict German-language copy linter for Nancy Wayland's executive newsletter. You did NOT write the text you receive. Your only job is to find a fixed set of banned patterns and remove each one with the smallest possible edit. You are not an editor and not a co-writer. Do not improve the prose, do not restructure, do not change meaning, tone, or length beyond what removing a banned pattern strictly requires.
+  const CLEANER_PROMPT_JSON = `You are a strict German-language copy linter for Nancy Wayland's executive newsletter. You did NOT write the text you receive. Your job has two parts: remove a fixed set of banned patterns with the smallest possible edit, and return the result as a JSON object with the newsletter segmented into named fields. You are not an editor and not a co-writer. Do not improve the prose, do not restructure, do not change meaning, tone, or length beyond what removing a banned pattern strictly requires.
 
-Read the text as foreign material to inspect. Do not ask whether a sentence "reads well" or "sounds like Nancy". The presence of a banned token IS the defect, regardless of how good the line sounds.
+Read the text as foreign material to inspect. Do not ask whether a sentence "reads well". The presence of a banned token IS the defect, regardless of how good the line sounds.
 
-Preserve exactly, and never alter:
-- the three header lines (Betreff, Preheader, Titel),
-- every paragraph and its order (do not add, remove, merge, split, or reorder paragraphs; the output must have the same paragraph structure as the input),
-- the final sentence and any {{ contact.FIRSTNAME }} token, verbatim,
-- first-person pronouns INSIDE quotation marks (a quoted person may say "ich"; that is the speaker, not the author).
+Never edit inside a direct quote (text in „ "). A quoted person may say "ich" and "sondern"; leave quotations exactly as they are. Preserve the final sentence and any {{ contact.FIRSTNAME }} token verbatim.
 
-Work the ENTIRE text, header lines included, ONE pattern at a time, as a literal search:
+Work the ENTIRE text, the Betreff, Preheader and Titel included, one pattern at a time, as a literal search:
 
-1. "sondern": every occurrence is banned, including the split form where an earlier "nicht" in the sentence sets up the contrast, and the dash-plus-sondern form. Rewrite so the contrast is stated without "nicht ... sondern": two plain statements, or one positive statement.
-2. Dashes as a pause: every "–", every "—", and every "..." used as a stylistic pause. Replace with a comma or a full stop. Keep a dash only inside a direct quote or a number range.
-3. Sentence openings "Wer" + verb: rewrite as a named role. "Wer zehn Jahre fuehrt, ..." becomes "Ein CEO, der zehn Jahre fuehrt, ...". Check the Titel and the Conclusio specifically.
-4. Imagery words still, leise, laut, tragen (and forms traegt, getragen, trug): replace with a concrete verb or phrase. Keep only "laut" as the preposition meaning "according to" and the idiom "laut denken".
-5. Author "ich / mich / mir / mein" anywhere OUTSIDE the Spur: the author is visible only in the Spur paragraph(s). Remove first person from every other element, including the phrase "den ich seit Jahren kenne" in the Geschichte (rewrite to e.g. "Ein CEO sprach kuerzlich ..."). Do not touch first person inside quotation marks.
-6. Three-part parallel lists (X, Y, Z of the same shape) and runs of short subjectless fragments ("Nicht mued, nicht ueberarbeitet. Einfach ratlos."): fold them into one flowing sentence with commas and a finite verb.
+1. "sondern": every occurrence outside a quote is banned, including the split form with an earlier "nicht". Rewrite so the contrast is stated without "nicht ... sondern".
+2. Dashes as a pause: every "–", "—", and every "..." used as a pause. Replace with a comma or a full stop. IMPORTANT: inside the Conclusio sentence, always resolve a dash with a comma, never a full stop, so the Conclusio stays one single sentence.
+3. Sentence openings "Wer" + verb: rewrite as a named role ("Ein CEO, der ..."). Check the Titel especially.
+4. Imagery words still, leise, laut, tragen (and forms trägt, getragen, trug): replace with a concrete verb or phrase. Keep only "laut" as the preposition meaning "according to".
+5. Author "ich / mich / mir / mein" outside the Spur: remove first person from every element except the Spur, including "den ich seit Jahren kenne" in the Geschichte. Do not touch first person inside quotation marks.
+6. Second-person address "du, dich, dir, dein, Sie, Ihr, Ihre, Ihnen" ANYWHERE, including the Betreff and the Titel, is banned, except inside a direct quote and in the fixed Schlusssatz. Rebuild the line as a recognised situation in the third person or the impersonal "man".
+7. Three-part parallel lists (X, Y, Z of the same shape) and runs of short subjectless fragments: fold them into one flowing sentence with commas and a finite verb.
 
 Rules:
 - Make the minimum change per hit. Prefer swapping or deleting the offending token over rewriting the whole sentence.
 - Never introduce a new banned pattern while fixing another.
-- Swiss High German: ss never ss-zet, real Umlauts ae/oe/ue written as ä/ö/ü.
-- Output ONLY the corrected newsletter, in the exact same format as the input (the Betreff, Preheader, Titel lines, then the body). No commentary, no notes, no explanation, no markdown fences. Nothing but the corrected newsletter.`;
+- Swiss High German: ss never the sharp-s, real Umlauts ä ö ü.
+
+Then segment the cleaned newsletter and output ONLY this JSON object, with no code fence, no preamble, no commentary, nothing before or after it:
+
+{
+  "betreff": "...",
+  "preheader": "...",
+  "titel": "...",
+  "hook": "...",
+  "geschichte": "...",
+  "analyse": "...",
+  "spur": "...",
+  "conclusio": "...",
+  "markersatz": "...",
+  "schlusssatz": "..."
+}
+
+Every field must be non-empty. The body fields (hook through schlusssatz) are the seven body paragraphs in order; the Spur field may contain two paragraphs separated by a blank line. Use German „ " quotation marks inside the text so they do not collide with the JSON string quotes. Output valid JSON and nothing else.`;
 
   const DEFAULT_TAB = () => ({ systemPrompt: "", webhookUrl: "" });
   const DEFAULT_SETTINGS = {
@@ -656,16 +669,16 @@ Rules:
       // Newsletter-only: structure breakdown toggle
       if (activeTabIdx === 0) {
         const STRUCT_ROWS = [
-          ["Betreff",     (h, s) => h.betreff],
-          ["Preheader",   (h, s) => h.preheader],
-          ["Titel",       (h, s) => h.titel],
-          ["Hook",        (h, s) => s.hook],
-          ["Geschichte",  (h, s) => s.geschichte],
-          ["Analyse",     (h, s) => s.analyse],
-          ["Spur",        (h, s) => s.spur],
-          ["Conclusio",   (h, s) => s.conclusio],
-          ["Markersatz",  (h, s) => s.markersatz],
-          ["Schlusssatz", (h, s) => s.schlusssatz],
+          ["Betreff",     f => f.betreff],
+          ["Preheader",   f => f.preheader],
+          ["Titel",       f => f.titel],
+          ["Hook",        f => f.hook],
+          ["Geschichte",  f => f.geschichte],
+          ["Analyse",     f => f.analyse],
+          ["Spur",        f => f.spur],
+          ["Conclusio",   f => f.conclusio],
+          ["Markersatz",  f => f.markersatz],
+          ["Schlusssatz", f => f.schlusssatz],
         ];
         const structBtn = document.createElement("button");
         structBtn.className = "pill";
@@ -675,7 +688,7 @@ Rules:
         structBtn.addEventListener("click", () => {
           if (panel.classList.toggle("open")) {
             if (!panel.childNodes.length) {
-              const { header, sections } = parseNewsletter(m.content);
+              const fields = m.parsedFields || positionParse(m.content);
               STRUCT_ROWS.forEach(([label, getter]) => {
                 const field = document.createElement("div");
                 field.className = "struct-field";
@@ -684,7 +697,7 @@ Rules:
                 lbl.textContent = label;
                 const val = document.createElement("div");
                 val.className = "struct-value";
-                val.textContent = getter(header, sections) || "—";
+                val.textContent = getter(fields) || "—";
                 field.appendChild(lbl); field.appendChild(val);
                 panel.appendChild(field);
               });
@@ -734,18 +747,18 @@ Rules:
 
     let payload;
     if (activeTabIdx === 0) {
-      // Newsletter tab: parse tag-based structure into webhook fields.
-      const { header, sections } = parseNewsletter(m.content);
-      const schlussRaw = [sections.markersatz, sections.schlusssatz].filter(Boolean).join("\n\n");
+      // Newsletter tab: structured fields (from cleaner JSON) or position-based fallback.
+      const fields = m.parsedFields || positionParse(m.content);
+      const schlussRaw = [fields.markersatz, fields.schlusssatz].filter(Boolean).join("\n\n");
       payload = {
-        subject:   header.betreff,
-        preheader: header.preheader,
-        headline:  header.titel,
-        hook:      sections.hook        || "",
-        story:     sections.geschichte  || "",
-        analyse:   sections.analyse     || "",
-        spur:      sections.spur        || "",
-        pointe:    sections.conclusio   || "",
+        subject:   fields.betreff,
+        preheader: fields.preheader,
+        headline:  fields.titel,
+        hook:      fields.hook        || "",
+        story:     fields.geschichte  || "",
+        analyse:   fields.analyse     || "",
+        spur:      fields.spur        || "",
+        pointe:    fields.conclusio   || "",
         schluss:   schlussRaw ? "{{ contact.FIRSTNAME }}, " + schlussRaw : "",
       };
     } else {
@@ -964,21 +977,6 @@ Rules:
     return /\b(behalte|lass|keep|genau so|exakt)\b/i.test(userText);
   }
 
-  const VOICE_RE = [
-    /[–—]/,
-    /\.\.\./,
-    /\bsondern\b/i,
-    /\bWer\s+\w+/,
-    /\b(still|leise|trägt|tragen|getragen|trug)\b/i,
-    /ich seit Jahren kenne/i,
-  ];
-
-  function hasViolations(text) {
-    const hits = VOICE_RE.filter(re => re.test(text)).map(re => re.toString());
-    if (hits.length) console.log("[cleaner] residual patterns:", hits.join(", "));
-    return hits.length > 0;
-  }
-
   async function callClaudeOnce(userText, systemText) {
     const res = await fetch(ANTHROPIC_URL, {
       method: "POST",
@@ -1003,19 +1001,60 @@ Rules:
     return text;
   }
 
+  const CLEANER_REQUIRED = ["betreff","preheader","titel","hook","geschichte","analyse","spur","conclusio","markersatz","schlusssatz"];
+
+  function positionParse(raw) {
+    const f = { betreff:"", preheader:"", titel:"", hook:"", geschichte:"", analyse:"", spur:"", conclusio:"", markersatz:"", schlusssatz:"" };
+    const lines = raw.split("\n");
+    for (const line of lines.slice(0, 10)) {
+      const m = line.match(/^(Betreff|Preheader|Titel):\s*(.+)/i);
+      if (m) f[m[1].toLowerCase()] = m[2].trim();
+    }
+    // Find body start: first non-empty line after the last header line
+    let headerEnd = 0;
+    for (let i = 0; i < lines.length; i++) {
+      if (/^(Betreff|Preheader|Titel):/i.test(lines[i])) headerEnd = i;
+    }
+    const bodyText = lines.slice(headerEnd + 1).join("\n").trim();
+    const paras = bodyText.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
+    if (paras.length >= 8) {
+      f.hook = paras[0]; f.geschichte = paras[1]; f.analyse = paras[2];
+      f.spur = [paras[3], paras[4]].join("\n\n");
+      f.conclusio = paras[5]; f.markersatz = paras[6]; f.schlusssatz = paras[7];
+    } else {
+      ["hook","geschichte","analyse","spur","conclusio","markersatz","schlusssatz"].forEach((k, i) => { f[k] = paras[i] || ""; });
+    }
+    return f;
+  }
+
   async function cleanNewsletter(draft) {
     try {
-      let cleaned = await callClaudeOnce(draft, CLEANER_PROMPT);
-      if (hasViolations(cleaned)) {
-        console.log("[cleaner] pass 1 has residual violations — running pass 2");
-        const pass2 = await callClaudeOnce(cleaned, CLEANER_PROMPT);
-        if (hasViolations(pass2)) console.log("[cleaner] residual violations remain after pass 2 — showing best result");
-        cleaned = pass2;
+      const raw = await callClaudeOnce(draft, CLEANER_PROMPT_JSON);
+      let parsed;
+      try { parsed = JSON.parse(raw.trim()); } catch {
+        const m = raw.match(/\{[\s\S]+\}/);
+        try { parsed = m ? JSON.parse(m[0]) : null; } catch { parsed = null; }
       }
-      return cleaned;
+      if (!parsed || CLEANER_REQUIRED.some(k => !parsed[k])) {
+        console.log("[cleaner] JSON validation failed — falling back to raw draft");
+        return null;
+      }
+      const prose = [
+        "Betreff: " + parsed.betreff,
+        "Preheader: " + parsed.preheader,
+        "Titel: " + parsed.titel,
+        "", parsed.hook,
+        "", parsed.geschichte,
+        "", parsed.analyse,
+        "", parsed.spur,
+        "", parsed.conclusio,
+        "", parsed.markersatz,
+        "", parsed.schlusssatz,
+      ].join("\n");
+      return { fields: parsed, prose };
     } catch (err) {
       console.log("[cleaner] error, falling back to raw draft:", err.message);
-      return draft;
+      return null;
     }
   }
 
@@ -1102,7 +1141,8 @@ Rules:
       if (!assistant.content) assistant.content = t("empty_response");
       // Call B: voice cleaner — Newsletter tab, real draft only, no explicit-keep instruction from Nancy.
       if (activeTabIdx === 0 && isNewsletter(assistant.content) && !shouldSkipCleaner(text)) {
-        assistant.content = await cleanNewsletter(assistant.content);
+        const result = await cleanNewsletter(assistant.content);
+        if (result) { assistant.parsedFields = result.fields; assistant.content = result.prose; }
       }
     } catch (err) {
       assistant.content = "⚠️ " + err.message;
