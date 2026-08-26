@@ -759,7 +759,8 @@ Every field must be non-empty. The body fields (hook through schlusssatz) are th
         analyse:   fields.analyse     || "",
         spur:      fields.spur        || "",
         pointe:    fields.conclusio   || "",
-        schluss:   schlussRaw ? "{{ contact.FIRSTNAME }}, " + schlussRaw[0].toLowerCase() + schlussRaw.slice(1) : "",
+        schluss:      schlussRaw ? "{{ contact.FIRSTNAME }}, " + schlussRaw[0].toLowerCase() + schlussRaw.slice(1) : "",
+        blog_schluss: schlussRaw || "",
       };
     } else {
       // LinkedIn / Blog: raw reply text.
