@@ -738,6 +738,25 @@ Every field must be non-empty. The body fields (hook through schlusssatz) are th
     }
   }
 
+  // ---------- slug helper ----------
+  function slugify(text) {
+    if (!text) return "";
+    let s = String(text).toLowerCase();
+    s = s.replace(/ä/g, "ae").replace(/ö/g, "oe").replace(/ü/g, "ue").replace(/ß/g, "ss");
+    s = s.replace(/[^a-z0-9\s-]/g, "");
+    s = s.trim().replace(/[\s-]+/g, "-");
+    s = s.replace(/^-+|-+$/g, "");
+    return s;
+  }
+
+  function firstLineHeadline(content) {
+    const line = String(content == null ? "" : content)
+      .split("\n")
+      .map(l => l.trim())
+      .find(l => l.length > 0) || "";
+    return line.replace(/^#+\s*/, "");
+  }
+
   // ---------- make.com ----------
   async function sendToMake(idx, btn) {
     const chat = activeChat();
@@ -761,10 +780,11 @@ Every field must be non-empty. The body fields (hook through schlusssatz) are th
         pointe:    fields.conclusio   || "",
         schluss:      schlussRaw ? "{{ contact.FIRSTNAME }}, " + schlussRaw[0].toLowerCase() + schlussRaw.slice(1) : "",
         blog_schluss: schlussRaw || "",
+        url_slug:  slugify(fields.titel),
       };
     } else {
-      // LinkedIn / Blog: raw reply text.
-      payload = { output: m.content };
+      // LinkedIn / Blog: raw reply text; slug derived from the first line.
+      payload = { output: m.content, url_slug: slugify(firstLineHeadline(m.content)) };
     }
 
     if (btn) { btn.disabled = true; btn.textContent = t("sending"); }
