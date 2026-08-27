@@ -296,6 +296,8 @@ Rules:
 - Never introduce a new banned pattern while fixing another.
 - Swiss High German: ss never the sharp-s, real Umlauts ä ö ü.
 
+Strip labels from the header lines before segmenting: if the headline text starts with "Titel:", remove that prefix; if the preheader text starts with "Untertitel:", remove that prefix. Every JSON field must contain pure content only — no leading label of any kind ("Betreff:", "Preheader:", "Titel:", "Untertitel:", etc.).
+
 Then segment the cleaned text and output ONLY this JSON object, with no code fence, no preamble, no commentary, nothing before or after it:
 
 {
@@ -1020,17 +1022,28 @@ Every field must be non-empty. The body fields (hook through schlusssatz) are th
 
   const CLEANER_REQUIRED = ["betreff","preheader","titel","hook","geschichte","analyse","spur","conclusio","markersatz","schlusssatz"];
 
+  // Strips a leading "Label:" prefix (any of the given labels) from a value.
+  // Handles doubled labels, e.g. "Titel: Titel: Foo" -> "Foo".
+  function stripLeadingLabel(text, labels) {
+    let s = String(text == null ? "" : text).trim();
+    const re = new RegExp("^(?:" + labels.join("|") + ")\\s*:\\s*", "i");
+    while (re.test(s)) s = s.replace(re, "").trim();
+    return s;
+  }
+
+  const HEADER_LABEL_KEY = { betreff: "betreff", preheader: "preheader", titel: "titel", untertitel: "preheader" };
+
   function positionParse(raw) {
     const f = { betreff:"", preheader:"", titel:"", hook:"", geschichte:"", analyse:"", spur:"", conclusio:"", markersatz:"", schlusssatz:"" };
     const lines = raw.split("\n");
     for (const line of lines.slice(0, 10)) {
-      const m = line.match(/^(Betreff|Preheader|Titel):\s*(.+)/i);
-      if (m) f[m[1].toLowerCase()] = m[2].trim();
+      const m = line.match(/^(Betreff|Preheader|Titel|Untertitel):\s*(.+)/i);
+      if (m) f[HEADER_LABEL_KEY[m[1].toLowerCase()]] = m[2].trim();
     }
     // Find body start: first non-empty line after the last header line
     let headerEnd = 0;
     for (let i = 0; i < lines.length; i++) {
-      if (/^(Betreff|Preheader|Titel):/i.test(lines[i])) headerEnd = i;
+      if (/^(Betreff|Preheader|Titel|Untertitel):/i.test(lines[i])) headerEnd = i;
     }
     const bodyText = lines.slice(headerEnd + 1).join("\n").trim();
     const paras = bodyText.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
@@ -1041,6 +1054,8 @@ Every field must be non-empty. The body fields (hook through schlusssatz) are th
     } else {
       ["hook","geschichte","analyse","spur","conclusio","markersatz","schlusssatz"].forEach((k, i) => { f[k] = paras[i] || ""; });
     }
+    f.titel = stripLeadingLabel(f.titel, ["Titel"]);
+    f.preheader = stripLeadingLabel(f.preheader, ["Preheader", "Untertitel"]);
     return f;
   }
 
@@ -1056,6 +1071,8 @@ Every field must be non-empty. The body fields (hook through schlusssatz) are th
         console.log("[cleaner] JSON validation failed — falling back to raw draft");
         return null;
       }
+      parsed.titel = stripLeadingLabel(parsed.titel, ["Titel"]);
+      parsed.preheader = stripLeadingLabel(parsed.preheader, ["Preheader", "Untertitel"]);
       const prose = [
         "Betreff: " + parsed.betreff,
         "Preheader: " + parsed.preheader,
