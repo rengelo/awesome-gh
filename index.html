@@ -298,6 +298,8 @@ Rules:
 
 Strip labels from the header lines before segmenting: if the headline text starts with "Titel:", remove that prefix; if the preheader text starts with "Untertitel:", remove that prefix. Every JSON field must contain pure content only — no leading label of any kind ("Betreff:", "Preheader:", "Titel:", "Untertitel:", etc.).
 
+Some source texts (blog articles) only carry "Titel:" and "Untertitel:" header lines, with no "Betreff:" line at all — there is no subject-line concept for a blog post. In that case put the Untertitel content into "preheader" and leave "betreff" as an empty string "". Never invent a Betreff/subject line that was not present in the source.
+
 Then segment the cleaned text and output ONLY this JSON object, with no code fence, no preamble, no commentary, nothing before or after it:
 
 {
@@ -313,7 +315,7 @@ Then segment the cleaned text and output ONLY this JSON object, with no code fen
   "schlusssatz": "..."
 }
 
-Every field must be non-empty. The body fields (hook through schlusssatz) are the seven body paragraphs in order; the Spur field may contain two paragraphs separated by a blank line. Use German „ " quotation marks inside the text so they do not collide with the JSON string quotes. Output valid JSON and nothing else.`;
+Every field must be non-empty, EXCEPT "betreff" may be "" when the source had no Betreff line (blog articles). The body fields (hook through schlusssatz) are the seven body paragraphs in order, covering the ENTIRE source text — never omit, summarize, or drop any paragraph; if the source has more than seven body paragraphs, fold the extra ones into "schlusssatz" so nothing is lost. The Spur field may contain two paragraphs separated by a blank line. Use German „ " quotation marks inside the text so they do not collide with the JSON string quotes. Output valid JSON and nothing else.`;
 
   const DEFAULT_TAB = () => ({ systemPrompt: "", webhookUrl: "" });
   const DEFAULT_SETTINGS = {
@@ -1063,7 +1065,7 @@ Every field must be non-empty. The body fields (hook through schlusssatz) are th
     return f;
   }
 
-  async function cleanNewsletter(draft) {
+  async function cleanNewsletter(draft, isBlog) {
     try {
       // The cleaner echoes the ENTIRE draft back inside the JSON, plus field names/quoting
       // overhead — size the budget off the draft itself so longer blog articles don't truncate.
@@ -1074,16 +1076,20 @@ Every field must be non-empty. The body fields (hook through schlusssatz) are th
         const m = raw.match(/\{[\s\S]+\}/);
         try { parsed = m ? JSON.parse(m[0]) : null; } catch { parsed = null; }
       }
-      if (!parsed || CLEANER_REQUIRED.some(k => !parsed[k])) {
+      // Blog articles carry no Betreff/subject-line concept — don't require it.
+      const required = isBlog ? CLEANER_REQUIRED.filter(k => k !== "betreff") : CLEANER_REQUIRED;
+      if (!parsed || required.some(k => !parsed[k])) {
         console.log("[cleaner] JSON validation failed — falling back to raw draft");
         return null;
       }
+      if (parsed.betreff == null) parsed.betreff = "";
       parsed.titel = stripLeadingLabel(parsed.titel, ["Titel"]);
       parsed.preheader = stripLeadingLabel(parsed.preheader, ["Preheader", "Untertitel"]);
+      const headerLines = isBlog
+        ? ["Titel: " + parsed.titel, "Untertitel: " + parsed.preheader]
+        : ["Betreff: " + parsed.betreff, "Preheader: " + parsed.preheader, "Titel: " + parsed.titel];
       const prose = [
-        "Betreff: " + parsed.betreff,
-        "Preheader: " + parsed.preheader,
-        "Titel: " + parsed.titel,
+        ...headerLines,
         "", parsed.hook,
         "", parsed.geschichte,
         "", parsed.analyse,
@@ -1182,7 +1188,7 @@ Every field must be non-empty. The body fields (hook through schlusssatz) are th
       if (!assistant.content) assistant.content = t("empty_response");
       // Call B: voice cleaner — Newsletter + Blog tabs, no explicit-keep instruction from Nancy.
       if ((activeTabIdx === 0 || activeTabIdx === 2) && assistant.content.length > 200 && !shouldSkipCleaner(text)) {
-        const result = await cleanNewsletter(assistant.content);
+        const result = await cleanNewsletter(assistant.content, activeTabIdx === 2);
         if (result) {
           assistant.parsedFields = result.fields;
           assistant.content = result.prose;
