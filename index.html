@@ -275,7 +275,7 @@
   const ANTHROPIC_URL     = "https://api.anthropic.com/v1/messages";
   const ANTHROPIC_VERSION = "2023-06-01";
 
-  const CLEANER_PROMPT_JSON = `You are a strict German-language copy linter for Nancy Wayland's executive newsletter. You did NOT write the text you receive. Your job has two parts: remove a fixed set of banned patterns with the smallest possible edit, and return the result as a JSON object with the newsletter segmented into named fields. You are not an editor and not a co-writer. Do not improve the prose, do not restructure, do not change meaning, tone, or length beyond what removing a banned pattern strictly requires.
+  const CLEANER_PROMPT_JSON = `You are a strict German-language copy linter for Nancy Wayland's executive newsletter and blog content. You did NOT write the text you receive. Your job has two parts: remove a fixed set of banned patterns with the smallest possible edit, and return the result as a JSON object with the text segmented into named fields. You are not an editor and not a co-writer. Do not improve the prose, do not restructure, do not change meaning, tone, or length beyond what removing a banned pattern strictly requires.
 
 Read the text as foreign material to inspect. Do not ask whether a sentence "reads well". The presence of a banned token IS the defect, regardless of how good the line sounds.
 
@@ -296,7 +296,7 @@ Rules:
 - Never introduce a new banned pattern while fixing another.
 - Swiss High German: ss never the sharp-s, real Umlauts ä ö ü.
 
-Then segment the cleaned newsletter and output ONLY this JSON object, with no code fence, no preamble, no commentary, nothing before or after it:
+Then segment the cleaned text and output ONLY this JSON object, with no code fence, no preamble, no commentary, nothing before or after it:
 
 {
   "betreff": "...",
@@ -666,8 +666,8 @@ Every field must be non-empty. The body fields (hook through schlusssatz) are th
       });
       actions.appendChild(send); actions.appendChild(copy);
 
-      // Newsletter-only: structure breakdown toggle
-      if (activeTabIdx === 0) {
+      // Newsletter + Blog: structure breakdown toggle
+      if (activeTabIdx === 0 || activeTabIdx === 2) {
         const STRUCT_ROWS = [
           ["Betreff",     f => f.betreff],
           ["Preheader",   f => f.preheader],
@@ -765,8 +765,8 @@ Every field must be non-empty. The body fields (hook through schlusssatz) are th
     if (!currentTab().webhookUrl) { alert(t("alert_set_webhook")); openModal(); return; }
 
     let payload;
-    if (activeTabIdx === 0) {
-      // Newsletter tab: structured fields (from cleaner JSON) or position-based fallback.
+    if (activeTabIdx === 0 || activeTabIdx === 2) {
+      // Newsletter + Blog tabs: structured fields (from cleaner JSON) or position-based fallback.
       const fields = m.parsedFields || positionParse(m.content);
       const schlussRaw = [fields.markersatz, fields.schlusssatz].filter(Boolean).join("\n\n");
       payload = {
@@ -783,7 +783,7 @@ Every field must be non-empty. The body fields (hook through schlusssatz) are th
         url_slug:  slugify(fields.titel),
       };
     } else {
-      // LinkedIn / Blog: raw reply text; slug derived from the first line.
+      // LinkedIn: raw reply text; slug derived from the first line.
       payload = { output: m.content, url_slug: slugify(firstLineHeadline(m.content)) };
     }
 
@@ -1156,8 +1156,8 @@ Every field must be non-empty. The body fields (hook through schlusssatz) are th
         if (bodyEl) { bodyEl.innerHTML = formatBody(stripTags(assistant.content)); elMessages.scrollTop = elMessages.scrollHeight; }
       });
       if (!assistant.content) assistant.content = t("empty_response");
-      // Call B: voice cleaner — Newsletter tab only, no explicit-keep instruction from Nancy.
-      if (activeTabIdx === 0 && assistant.content.length > 200 && !shouldSkipCleaner(text)) {
+      // Call B: voice cleaner — Newsletter + Blog tabs, no explicit-keep instruction from Nancy.
+      if ((activeTabIdx === 0 || activeTabIdx === 2) && assistant.content.length > 200 && !shouldSkipCleaner(text)) {
         const result = await cleanNewsletter(assistant.content);
         if (result) {
           assistant.parsedFields = result.fields;
