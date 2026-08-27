@@ -315,7 +315,7 @@ Then segment the cleaned text and output ONLY this JSON object, with no code fen
   "schlusssatz": "..."
 }
 
-Every field must be non-empty, EXCEPT "betreff" may be "" when the source had no Betreff line (blog articles). The body fields (hook through schlusssatz) are the seven body paragraphs in order, covering the ENTIRE source text — never omit, summarize, or drop any paragraph; if the source has more than seven body paragraphs, fold the extra ones into "schlusssatz" so nothing is lost. The Spur field may contain two paragraphs separated by a blank line. Use German „ " quotation marks inside the text so they do not collide with the JSON string quotes. Output valid JSON and nothing else.`;
+Every field must be non-empty, EXCEPT "betreff" may be "" when the source had no Betreff line (blog articles). The body fields (hook through schlusssatz) are the seven body paragraphs in order, covering the ENTIRE source text — never omit, summarize, or drop any paragraph; if the source has more than seven body paragraphs, fold the extra ones into "schlusssatz", each original paragraph kept intact and separated from the next by a blank line (\n\n) inside that field's string value. The Spur field may likewise contain two paragraphs separated by a blank line. Never merge two original paragraphs into one paragraph, and never join them with anything other than a blank line. Use German „ " quotation marks inside the text so they do not collide with the JSON string quotes. Output valid JSON and nothing else.`;
 
   const DEFAULT_TAB = () => ({ systemPrompt: "", webhookUrl: "" });
   const DEFAULT_SETTINGS = {
@@ -761,6 +761,16 @@ Every field must be non-empty, EXCEPT "betreff" may be "" when the source had no
     return line.replace(/^#+\s*/, "");
   }
 
+  // Converts a plain-text field (paragraphs separated by a blank line) into HTML for the
+  // webhook: escapes special characters, then turns paragraph breaks into <br><br> and any
+  // remaining single line breaks into <br>. Used only at payload-build time — the field
+  // values themselves stay plain text for the chat bubble / Struktur panel (pre-wrap CSS).
+  function nl2br(text) {
+    return escapeHtml(String(text == null ? "" : text))
+      .replace(/\n{2,}/g, "<br><br>")
+      .replace(/\n/g, "<br>");
+  }
+
   // ---------- make.com ----------
   async function sendToMake(idx, btn) {
     const chat = activeChat();
@@ -772,18 +782,23 @@ Every field must be non-empty, EXCEPT "betreff" may be "" when the source had no
     if (activeTabIdx === 0 || activeTabIdx === 2) {
       // Newsletter + Blog tabs: structured fields (from cleaner JSON) or position-based fallback.
       const fields = m.parsedFields || positionParse(m.content);
-      const schlussRaw = [fields.markersatz, fields.schlusssatz].filter(Boolean).join("\n\n");
+      // Join markersatz + schlusssatz as HTML first, so the closing-block paragraph breaks
+      // survive, then lowercase the first character for the {{ contact.FIRSTNAME }}, ... join.
+      const markersatzHtml  = nl2br(fields.markersatz);
+      const schlusssatzHtml = nl2br(fields.schlusssatz);
+      const schlussHtml = [markersatzHtml, schlusssatzHtml].filter(Boolean).join("<br><br>");
+      const schlussLower = schlussHtml ? schlussHtml[0].toLowerCase() + schlussHtml.slice(1) : "";
       payload = {
-        subject:   fields.betreff,
-        preheader: fields.preheader,
-        headline:  fields.titel,
-        hook:      fields.hook        || "",
-        story:     fields.geschichte  || "",
-        analyse:   fields.analyse     || "",
-        spur:      fields.spur        || "",
-        pointe:    fields.conclusio   || "",
-        schluss:      schlussRaw ? "{{ contact.FIRSTNAME }}, " + schlussRaw[0].toLowerCase() + schlussRaw.slice(1) : "",
-        blog_schluss: schlussRaw || "",
+        subject:   nl2br(fields.betreff),
+        preheader: nl2br(fields.preheader),
+        headline:  nl2br(fields.titel),
+        hook:      nl2br(fields.hook),
+        story:     nl2br(fields.geschichte),
+        analyse:   nl2br(fields.analyse),
+        spur:      nl2br(fields.spur),
+        pointe:    nl2br(fields.conclusio),
+        schluss:      schlussLower ? "{{ contact.FIRSTNAME }}, " + schlussLower : "",
+        blog_schluss: schlussHtml || "",
         url_slug:  slugify(fields.titel),
       };
     } else {
