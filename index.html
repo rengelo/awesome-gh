@@ -392,6 +392,7 @@ Every field must be non-empty, EXCEPT "betreff" may be "" when the source had no
       empty_response: "(empty response)",
       alert_set_webhook: "Set your make.com webhook URL in Settings first.",
       alert_webhook_fail: (msg) => "Failed to reach the webhook: " + msg,
+      alert_missing_fields: (list) => "Send aborted: these fields are empty: " + list + ". Nothing was sent to make.com. Ask for the full text including the Betreff, Preheader and Titel lines, then send again.",
       alert_set_apikey: "Set your Anthropic API key in Settings first.",
       confirm_delete_chat: "Delete this chat?",
       alert_no_text: (name) => `No text could be extracted from ${name} (it may be a scanned/image-only file).`,
@@ -462,6 +463,7 @@ Every field must be non-empty, EXCEPT "betreff" may be "" when the source had no
       empty_response: "(leere Antwort)",
       alert_set_webhook: "Hinterlege zuerst deine make.com-Webhook-URL in den Einstellungen.",
       alert_webhook_fail: (msg) => "Webhook nicht erreichbar: " + msg,
+      alert_missing_fields: (list) => "Senden abgebrochen: diese Felder sind leer: " + list + ". Es wurde nichts an make.com gesendet. Fordere den vollständigen Text samt Betreff-, Preheader- und Titel-Zeilen an und sende erneut.",
       alert_set_apikey: "Hinterlege zuerst deinen Anthropic-API-Schlüssel in den Einstellungen.",
       confirm_delete_chat: "Diesen Chat löschen?",
       alert_no_text: (name) => `Aus ${name} konnte kein Text extrahiert werden (möglicherweise eine gescannte/reine Bilddatei).`,
@@ -772,6 +774,15 @@ Every field must be non-empty, EXCEPT "betreff" may be "" when the source had no
   }
 
   // ---------- make.com ----------
+  // Fields that must be non-empty before the webhook is called. The Blog tab has no
+  // subject line, so "subject" is only required for the Newsletter tab.
+  function missingPayloadFields(payload, isBlog) {
+    const required = isBlog
+      ? ["headline", "preheader", "hook", "story", "analyse", "spur", "pointe", "blog_schluss", "url_slug"]
+      : ["subject", "preheader", "headline", "hook", "story", "analyse", "spur", "pointe", "schluss", "blog_schluss", "url_slug"];
+    return required.filter(k => !String(payload[k] == null ? "" : payload[k]).trim());
+  }
+
   async function sendToMake(idx, btn) {
     const chat = activeChat();
     const m = chat?.messages[idx];
@@ -804,6 +815,13 @@ Every field must be non-empty, EXCEPT "betreff" may be "" when the source had no
     } else {
       // LinkedIn: raw reply text; slug derived from the first line.
       payload = { output: m.content, url_slug: slugify(firstLineHeadline(m.content)) };
+    }
+
+    // Never ship an incomplete payload: an empty headline/subject/slug makes the downstream
+    // GHL calls fail (422 "name should not be empty") or creates untitled posts.
+    if (activeTabIdx === 0 || activeTabIdx === 2) {
+      const missing = missingPayloadFields(payload, activeTabIdx === 2);
+      if (missing.length) { alert(t("alert_missing_fields", missing.join(", "))); return; }
     }
 
     if (btn) { btn.disabled = true; btn.textContent = t("sending"); }
@@ -1049,19 +1067,25 @@ Every field must be non-empty, EXCEPT "betreff" may be "" when the source had no
     return s;
   }
 
-  const HEADER_LABEL_KEY = { betreff: "betreff", preheader: "preheader", titel: "titel", untertitel: "preheader" };
+  const HEADER_LABEL_KEY = {
+    betreff: "betreff", subject: "betreff",
+    preheader: "preheader", vorschau: "preheader", untertitel: "preheader",
+    titel: "titel", headline: "titel", "überschrift": "titel"
+  };
+  // Tolerates markdown decoration around the label ("**Betreff:** ...", "# Titel: ...", "- Preheader: ...").
+  const HEADER_LINE_RE = /^[\s>#*_\-\u2022]*(Betreff|Subject|Preheader|Vorschau|Titel|Headline|\u00dcberschrift|Untertitel)\s*[*_]*\s*:\s*[*_]*\s*(.*)$/i;
+  const HEADER_SCAN_LINES = 15;
 
   function positionParse(raw) {
     const f = { betreff:"", preheader:"", titel:"", hook:"", geschichte:"", analyse:"", spur:"", conclusio:"", markersatz:"", schlusssatz:"" };
-    const lines = raw.split("\n");
-    for (const line of lines.slice(0, 10)) {
-      const m = line.match(/^(Betreff|Preheader|Titel|Untertitel):\s*(.+)/i);
-      if (m) f[HEADER_LABEL_KEY[m[1].toLowerCase()]] = m[2].trim();
-    }
-    // Find body start: first non-empty line after the last header line
-    let headerEnd = 0;
-    for (let i = 0; i < lines.length; i++) {
-      if (/^(Betreff|Preheader|Titel|Untertitel):/i.test(lines[i])) headerEnd = i;
+    const lines = String(raw == null ? "" : raw).replace(/\r\n?/g, "\n").split("\n");
+    let headerEnd = -1;
+    for (let i = 0; i < Math.min(lines.length, HEADER_SCAN_LINES); i++) {
+      const m = lines[i].match(HEADER_LINE_RE);
+      if (!m) continue;
+      headerEnd = i;
+      const val = m[2].replace(/[*_]+\s*$/, "").trim();
+      if (val) f[HEADER_LABEL_KEY[m[1].toLowerCase()]] = val;
     }
     const bodyText = lines.slice(headerEnd + 1).join("\n").trim();
     const paras = bodyText.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
