@@ -127,6 +127,17 @@
   code.k { background: #f0ede7; padding: 1px 5px; border-radius: 4px; font-family: ui-monospace, monospace; font-size: 12px; }
   .tab-section-head { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .7px;
     color: var(--accent); padding: 14px 0 10px; border-top: 1px solid var(--line); margin-top: 4px; }
+
+  /* Newsletter structure panel */
+  .struct-panel { display: none; margin-top: 12px; border: 1px solid var(--line); border-radius: var(--radius);
+    overflow: hidden; font-size: 14px; }
+  .struct-panel.open { display: block; }
+  .struct-field { display: flex; border-bottom: 1px solid var(--line); }
+  .struct-field:last-child { border-bottom: none; }
+  .struct-label { flex: 0 0 110px; padding: 9px 12px; font-size: 11.5px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .5px; color: var(--muted); background: var(--bg);
+    border-right: 1px solid var(--line); white-space: nowrap; }
+  .struct-value { flex: 1; padding: 9px 12px; line-height: 1.55; white-space: pre-wrap; word-wrap: break-word; color: var(--ink); }
 </style>
 </head>
 <body>
@@ -264,6 +275,48 @@
   const ANTHROPIC_URL     = "https://api.anthropic.com/v1/messages";
   const ANTHROPIC_VERSION = "2023-06-01";
 
+  const CLEANER_PROMPT_JSON = `You are a strict German-language copy linter for Nancy Wayland's executive newsletter and blog content. You did NOT write the text you receive. Your job has two parts: remove a fixed set of banned patterns with the smallest possible edit, and return the result as a JSON object with the text segmented into named fields. You are not an editor and not a co-writer. Do not improve the prose, do not restructure, do not change meaning, tone, or length beyond what removing a banned pattern strictly requires.
+
+Read the text as foreign material to inspect. Do not ask whether a sentence "reads well". The presence of a banned token IS the defect, regardless of how good the line sounds.
+
+Never edit inside a direct quote (text in „ "). A quoted person may say "ich" and "sondern"; leave quotations exactly as they are. Preserve the final sentence and any {{ contact.FIRSTNAME }} token verbatim.
+
+Work the ENTIRE text, the Betreff, Preheader and Titel included, one pattern at a time, as a literal search:
+
+1. "sondern": every occurrence outside a quote is banned, including the split form with an earlier "nicht". Rewrite so the contrast is stated without "nicht ... sondern".
+2. Dashes as a pause: every "–", "—", and every "..." used as a pause. Replace with a comma or a full stop. IMPORTANT: inside the Conclusio sentence, always resolve a dash with a comma, never a full stop, so the Conclusio stays one single sentence.
+3. Sentence openings "Wer" + verb: rewrite as a named role ("Ein CEO, der ..."). Check the Titel especially.
+4. Imagery words still, leise, laut, tragen (and forms trägt, getragen, trug): replace with a concrete verb or phrase. Keep only "laut" as the preposition meaning "according to".
+5. Author "ich / mich / mir / mein" outside the Spur: remove first person from every element except the Spur, including "den ich seit Jahren kenne" in the Geschichte. Do not touch first person inside quotation marks.
+6. Second-person address "du, dich, dir, dein, Sie, Ihr, Ihre, Ihnen" ANYWHERE, including the Betreff and the Titel, is banned, except inside a direct quote and in the fixed Schlusssatz. Rebuild the line as a recognised situation in the third person or the impersonal "man".
+7. Three-part parallel lists (X, Y, Z of the same shape) and runs of short subjectless fragments: fold them into one flowing sentence with commas and a finite verb.
+
+Rules:
+- Make the minimum change per hit. Prefer swapping or deleting the offending token over rewriting the whole sentence.
+- Never introduce a new banned pattern while fixing another.
+- Swiss High German: ss never the sharp-s, real Umlauts ä ö ü.
+
+Strip labels from the header lines before segmenting: if the headline text starts with "Titel:", remove that prefix; if the preheader text starts with "Untertitel:", remove that prefix. Every JSON field must contain pure content only — no leading label of any kind ("Betreff:", "Preheader:", "Titel:", "Untertitel:", etc.).
+
+Some source texts (blog articles) only carry "Titel:" and "Untertitel:" header lines, with no "Betreff:" line at all — there is no subject-line concept for a blog post. In that case put the Untertitel content into "preheader" and leave "betreff" as an empty string "". Never invent a Betreff/subject line that was not present in the source.
+
+Then segment the cleaned text and output ONLY this JSON object, with no code fence, no preamble, no commentary, nothing before or after it:
+
+{
+  "betreff": "...",
+  "preheader": "...",
+  "titel": "...",
+  "hook": "...",
+  "geschichte": "...",
+  "analyse": "...",
+  "spur": "...",
+  "conclusio": "...",
+  "markersatz": "...",
+  "schlusssatz": "..."
+}
+
+Every field must be non-empty, EXCEPT "betreff" may be "" when the source had no Betreff line (blog articles). The body fields (hook through schlusssatz) are the seven body paragraphs in order, covering the ENTIRE source text — never omit, summarize, or drop any paragraph; if the source has more than seven body paragraphs, fold the extra ones into "schlusssatz", each original paragraph kept intact and separated from the next by a blank line (\n\n) inside that field's string value. The Spur field may likewise contain two paragraphs separated by a blank line. Never merge two original paragraphs into one paragraph, and never join them with anything other than a blank line. Use German „ " quotation marks inside the text so they do not collide with the JSON string quotes. Output valid JSON and nothing else.`;
+
   const DEFAULT_TAB = () => ({ systemPrompt: "", webhookUrl: "" });
   const DEFAULT_SETTINGS = {
     apiKey: "",
@@ -339,6 +392,7 @@
       empty_response: "(empty response)",
       alert_set_webhook: "Set your make.com webhook URL in Settings first.",
       alert_webhook_fail: (msg) => "Failed to reach the webhook: " + msg,
+      alert_missing_fields: (list) => "Send aborted: these fields are empty: " + list + ". Nothing was sent to make.com. Ask for the full text including the Betreff, Preheader and Titel lines, then send again.",
       alert_set_apikey: "Set your Anthropic API key in Settings first.",
       confirm_delete_chat: "Delete this chat?",
       alert_no_text: (name) => `No text could be extracted from ${name} (it may be a scanned/image-only file).`,
@@ -409,6 +463,7 @@
       empty_response: "(leere Antwort)",
       alert_set_webhook: "Hinterlege zuerst deine make.com-Webhook-URL in den Einstellungen.",
       alert_webhook_fail: (msg) => "Webhook nicht erreichbar: " + msg,
+      alert_missing_fields: (list) => "Senden abgebrochen: diese Felder sind leer: " + list + ". Es wurde nichts an make.com gesendet. Fordere den vollständigen Text samt Betreff-, Preheader- und Titel-Zeilen an und sende erneut.",
       alert_set_apikey: "Hinterlege zuerst deinen Anthropic-API-Schlüssel in den Einstellungen.",
       confirm_delete_chat: "Diesen Chat löschen?",
       alert_no_text: (name) => `Aus ${name} konnte kein Text extrahiert werden (möglicherweise eine gescannte/reine Bilddatei).`,
@@ -561,12 +616,12 @@
     const fences = [];
     let t = text.replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) => {
       fences.push(`<pre><code>${escapeHtml(code.replace(/\n$/, ""))}</code></pre>`);
-      return `${fences.length - 1}`;
+      return `\x00FENCE${fences.length - 1}\x00`;
     });
     t = escapeHtml(t);
     t = t.replace(/`([^`\n]+)`/g, (_, c) => `<code>${c}</code>`);
     t = t.replace(/\*\*([^*\n]+)\*\*/g, (_, b) => `<strong>${b}</strong>`);
-    t = t.replace(/(\d+)/g, (_, i) => fences[+i]);
+    t = t.replace(/\x00FENCE(\d+)\x00/g, (_, i) => fences[+i]);
     return t;
   }
 
@@ -598,7 +653,7 @@
     who.textContent = m.role === "user" ? t("who_you") : "Claude";
     const body = document.createElement("div");
     body.className = "body";
-    body.innerHTML = formatBody(m.content);
+    body.innerHTML = formatBody(stripTags(m.content));
     msg.appendChild(who); msg.appendChild(body);
 
     if (m.role === "assistant") {
@@ -612,11 +667,58 @@
       copy.className = "pill";
       copy.textContent = t("copy");
       copy.addEventListener("click", () => {
-        navigator.clipboard.writeText(m.content);
+        navigator.clipboard.writeText(stripTags(m.content));
         copy.textContent = t("copied"); setTimeout(() => copy.textContent = t("copy"), 1200);
       });
       actions.appendChild(send); actions.appendChild(copy);
-      msg.appendChild(actions);
+
+      // Newsletter + Blog: structure breakdown toggle
+      if (activeTabIdx === 0 || activeTabIdx === 2) {
+        const STRUCT_ROWS = [
+          ["Betreff",     f => f.betreff],
+          ["Preheader",   f => f.preheader],
+          ["Titel",       f => f.titel],
+          ["Hook",        f => f.hook],
+          ["Geschichte",  f => f.geschichte],
+          ["Analyse",     f => f.analyse],
+          ["Spur",        f => f.spur],
+          ["Conclusio",   f => f.conclusio],
+          ["Markersatz",  f => f.markersatz],
+          ["Schlusssatz", f => f.schlusssatz],
+        ];
+        const structBtn = document.createElement("button");
+        structBtn.className = "pill";
+        structBtn.textContent = "Struktur";
+        const panel = document.createElement("div");
+        panel.className = "struct-panel";
+        structBtn.addEventListener("click", () => {
+          if (panel.classList.toggle("open")) {
+            if (!panel.childNodes.length) {
+              const fields = m.parsedFields || positionParse(m.content);
+              STRUCT_ROWS.forEach(([label, getter]) => {
+                const field = document.createElement("div");
+                field.className = "struct-field";
+                const lbl = document.createElement("div");
+                lbl.className = "struct-label";
+                lbl.textContent = label;
+                const val = document.createElement("div");
+                val.className = "struct-value";
+                val.textContent = getter(fields) || "—";
+                field.appendChild(lbl); field.appendChild(val);
+                panel.appendChild(field);
+              });
+            }
+            structBtn.textContent = "Struktur ▲";
+          } else {
+            structBtn.textContent = "Struktur";
+          }
+        });
+        actions.appendChild(structBtn);
+        msg.appendChild(actions);
+        msg.appendChild(panel);
+      } else {
+        msg.appendChild(actions);
+      }
     }
     row.appendChild(msg);
     return row;
@@ -642,7 +744,45 @@
     }
   }
 
+  // ---------- slug helper ----------
+  function slugify(text) {
+    if (!text) return "";
+    let s = String(text).toLowerCase();
+    s = s.replace(/ä/g, "ae").replace(/ö/g, "oe").replace(/ü/g, "ue").replace(/ß/g, "ss");
+    s = s.replace(/[^a-z0-9\s-]/g, "");
+    s = s.trim().replace(/[\s-]+/g, "-");
+    s = s.replace(/^-+|-+$/g, "");
+    return s;
+  }
+
+  function firstLineHeadline(content) {
+    const line = String(content == null ? "" : content)
+      .split("\n")
+      .map(l => l.trim())
+      .find(l => l.length > 0) || "";
+    return line.replace(/^#+\s*/, "");
+  }
+
+  // Converts a plain-text field (paragraphs separated by a blank line) into HTML for the
+  // webhook: escapes special characters, then turns paragraph breaks into <br><br> and any
+  // remaining single line breaks into <br>. Used only at payload-build time — the field
+  // values themselves stay plain text for the chat bubble / Struktur panel (pre-wrap CSS).
+  function nl2br(text) {
+    return escapeHtml(String(text == null ? "" : text))
+      .replace(/\n{2,}/g, "<br><br>")
+      .replace(/\n/g, "<br>");
+  }
+
   // ---------- make.com ----------
+  // Fields that must be non-empty before the webhook is called. The Blog tab has no
+  // subject line, so "subject" is only required for the Newsletter tab.
+  function missingPayloadFields(payload, isBlog) {
+    const required = isBlog
+      ? ["headline", "preheader", "hook", "story", "analyse", "spur", "pointe", "blog_schluss", "url_slug"]
+      : ["subject", "preheader", "headline", "hook", "story", "analyse", "spur", "pointe", "schluss", "blog_schluss", "url_slug"];
+    return required.filter(k => !String(payload[k] == null ? "" : payload[k]).trim());
+  }
+
   async function sendToMake(idx, btn) {
     const chat = activeChat();
     const m = chat?.messages[idx];
@@ -650,13 +790,38 @@
     if (!currentTab().webhookUrl) { alert(t("alert_set_webhook")); openModal(); return; }
 
     let payload;
-    if (activeTabIdx === 0) {
-      // Newsletter tab: parse into structured fields.
-      const parsed = parseNewsletter(m.content);
-      payload = parsed.fields;
+    if (activeTabIdx === 0 || activeTabIdx === 2) {
+      // Newsletter + Blog tabs: structured fields (from cleaner JSON) or position-based fallback.
+      const fields = m.parsedFields || positionParse(m.content);
+      // Join markersatz + schlusssatz as HTML first, so the closing-block paragraph breaks
+      // survive, then lowercase the first character for the {{ contact.FIRSTNAME }}, ... join.
+      const markersatzHtml  = nl2br(fields.markersatz);
+      const schlusssatzHtml = nl2br(fields.schlusssatz);
+      const schlussHtml = [markersatzHtml, schlusssatzHtml].filter(Boolean).join("<br><br>");
+      const schlussLower = schlussHtml ? schlussHtml[0].toLowerCase() + schlussHtml.slice(1) : "";
+      payload = {
+        subject:   nl2br(fields.betreff),
+        preheader: nl2br(fields.preheader),
+        headline:  nl2br(fields.titel),
+        hook:      nl2br(fields.hook),
+        story:     nl2br(fields.geschichte),
+        analyse:   nl2br(fields.analyse),
+        spur:      nl2br(fields.spur),
+        pointe:    nl2br(fields.conclusio),
+        schluss:      schlussLower ? "{{ contact.FIRSTNAME }}, " + schlussLower : "",
+        blog_schluss: schlussHtml || "",
+        url_slug:  slugify(fields.titel),
+      };
     } else {
-      // LinkedIn / Blog: raw reply text.
-      payload = { output: m.content };
+      // LinkedIn: raw reply text; slug derived from the first line.
+      payload = { output: m.content, url_slug: slugify(firstLineHeadline(m.content)) };
+    }
+
+    // Never ship an incomplete payload: an empty headline/subject/slug makes the downstream
+    // GHL calls fail (422 "name should not be empty") or creates untitled posts.
+    if (activeTabIdx === 0 || activeTabIdx === 2) {
+      const missing = missingPayloadFields(payload, activeTabIdx === 2);
+      if (missing.length) { alert(t("alert_missing_fields", missing.join(", "))); return; }
     }
 
     if (btn) { btn.disabled = true; btn.textContent = t("sending"); }
@@ -861,6 +1026,124 @@
     }
   }
 
+  // ---------- Voice cleaner (Call B) ----------
+  function shouldSkipCleaner(userText) {
+    return /\b(behalte|lass|keep|genau so|exakt)\b/i.test(userText);
+  }
+
+  async function callClaudeOnce(userText, systemText, maxTokens) {
+    const res = await fetch(ANTHROPIC_URL, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": settings.apiKey,
+        "anthropic-version": ANTHROPIC_VERSION,
+        "anthropic-dangerous-direct-browser-access": "true",
+      },
+      body: JSON.stringify({
+        model: settings.model,
+        max_tokens: maxTokens || 4096,
+        temperature: 0.2,
+        system: [{ type: "text", text: systemText }],
+        messages: [{ role: "user", content: userText }],
+      }),
+    });
+    if (!res.ok) throw new Error("Cleaner API " + res.status);
+    const j = await res.json();
+    const text = j.content?.[0]?.text || "";
+    if (!text) throw new Error("Cleaner returned empty response");
+    if (j.stop_reason === "max_tokens") console.log("[cleaner] response truncated at max_tokens — output likely incomplete");
+    return text;
+  }
+
+  const CLEANER_REQUIRED = ["betreff","preheader","titel","hook","geschichte","analyse","spur","conclusio","markersatz","schlusssatz"];
+
+  // Strips a leading "Label:" prefix (any of the given labels) from a value.
+  // Handles doubled labels, e.g. "Titel: Titel: Foo" -> "Foo".
+  function stripLeadingLabel(text, labels) {
+    let s = String(text == null ? "" : text).trim();
+    const re = new RegExp("^(?:" + labels.join("|") + ")\\s*:\\s*", "i");
+    while (re.test(s)) s = s.replace(re, "").trim();
+    return s;
+  }
+
+  const HEADER_LABEL_KEY = {
+    betreff: "betreff", subject: "betreff",
+    preheader: "preheader", vorschau: "preheader", untertitel: "preheader",
+    titel: "titel", headline: "titel", "überschrift": "titel"
+  };
+  // Tolerates markdown decoration around the label ("**Betreff:** ...", "# Titel: ...", "- Preheader: ...").
+  const HEADER_LINE_RE = /^[\s>#*_\-\u2022]*(Betreff|Subject|Preheader|Vorschau|Titel|Headline|\u00dcberschrift|Untertitel)\s*[*_]*\s*:\s*[*_]*\s*(.*)$/i;
+  const HEADER_SCAN_LINES = 15;
+
+  function positionParse(raw) {
+    const f = { betreff:"", preheader:"", titel:"", hook:"", geschichte:"", analyse:"", spur:"", conclusio:"", markersatz:"", schlusssatz:"" };
+    const lines = String(raw == null ? "" : raw).replace(/\r\n?/g, "\n").split("\n");
+    let headerEnd = -1;
+    for (let i = 0; i < Math.min(lines.length, HEADER_SCAN_LINES); i++) {
+      const m = lines[i].match(HEADER_LINE_RE);
+      if (!m) continue;
+      headerEnd = i;
+      const val = m[2].replace(/[*_]+\s*$/, "").trim();
+      if (val) f[HEADER_LABEL_KEY[m[1].toLowerCase()]] = val;
+    }
+    const bodyText = lines.slice(headerEnd + 1).join("\n").trim();
+    const paras = bodyText.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
+    if (paras.length >= 8) {
+      f.hook = paras[0]; f.geschichte = paras[1]; f.analyse = paras[2];
+      f.spur = [paras[3], paras[4]].join("\n\n");
+      f.conclusio = paras[5]; f.markersatz = paras[6];
+      // Roll any paragraphs beyond the 8th into schlusssatz — never silently drop content
+      // (e.g. longer blog articles that don't split into exactly 8 blocks).
+      f.schlusssatz = paras.slice(7).join("\n\n");
+    } else {
+      ["hook","geschichte","analyse","spur","conclusio","markersatz","schlusssatz"].forEach((k, i) => { f[k] = paras[i] || ""; });
+    }
+    f.titel = stripLeadingLabel(f.titel, ["Titel"]);
+    f.preheader = stripLeadingLabel(f.preheader, ["Preheader", "Untertitel"]);
+    return f;
+  }
+
+  async function cleanNewsletter(draft, isBlog) {
+    try {
+      // The cleaner echoes the ENTIRE draft back inside the JSON, plus field names/quoting
+      // overhead — size the budget off the draft itself so longer blog articles don't truncate.
+      const budget = Math.max(4096, Math.min(64000, Math.ceil(draft.length / 2.5) + 1024, Number(settings.maxTokens) || 8192));
+      const raw = await callClaudeOnce(draft, CLEANER_PROMPT_JSON, budget);
+      let parsed;
+      try { parsed = JSON.parse(raw.trim()); } catch {
+        const m = raw.match(/\{[\s\S]+\}/);
+        try { parsed = m ? JSON.parse(m[0]) : null; } catch { parsed = null; }
+      }
+      // Blog articles carry no Betreff/subject-line concept — don't require it.
+      const required = isBlog ? CLEANER_REQUIRED.filter(k => k !== "betreff") : CLEANER_REQUIRED;
+      if (!parsed || required.some(k => !parsed[k])) {
+        console.log("[cleaner] JSON validation failed — falling back to raw draft");
+        return null;
+      }
+      if (parsed.betreff == null) parsed.betreff = "";
+      parsed.titel = stripLeadingLabel(parsed.titel, ["Titel"]);
+      parsed.preheader = stripLeadingLabel(parsed.preheader, ["Preheader", "Untertitel"]);
+      const headerLines = isBlog
+        ? ["Titel: " + parsed.titel, "Untertitel: " + parsed.preheader]
+        : ["Betreff: " + parsed.betreff, "Preheader: " + parsed.preheader, "Titel: " + parsed.titel];
+      const prose = [
+        ...headerLines,
+        "", parsed.hook,
+        "", parsed.geschichte,
+        "", parsed.analyse,
+        "", parsed.spur,
+        "", parsed.conclusio,
+        "", parsed.markersatz,
+        "", parsed.schlusssatz,
+      ].join("\n");
+      return { fields: parsed, prose };
+    } catch (err) {
+      console.log("[cleaner] error, falling back to raw draft:", err.message);
+      return null;
+    }
+  }
+
   // ---------- Claude streaming ----------
   async function streamClaude(messages, onDelta) {
     const system = buildSystem();
@@ -939,9 +1222,19 @@
     try {
       await streamClaude(apiMessages, (delta) => {
         assistant.content += delta;
-        if (bodyEl) { bodyEl.innerHTML = formatBody(assistant.content); elMessages.scrollTop = elMessages.scrollHeight; }
+        if (bodyEl) { bodyEl.innerHTML = formatBody(stripTags(assistant.content)); elMessages.scrollTop = elMessages.scrollHeight; }
       });
       if (!assistant.content) assistant.content = t("empty_response");
+      // Call B: voice cleaner — Newsletter + Blog tabs, no explicit-keep instruction from Nancy.
+      if ((activeTabIdx === 0 || activeTabIdx === 2) && assistant.content.length > 200 && !shouldSkipCleaner(text)) {
+        const result = await cleanNewsletter(assistant.content, activeTabIdx === 2);
+        if (result) {
+          assistant.parsedFields = result.fields;
+          assistant.content = result.prose;
+        } else {
+          assistant.parsedFields = positionParse(assistant.content);
+        }
+      }
     } catch (err) {
       assistant.content = "⚠️ " + err.message;
     } finally {
@@ -1065,7 +1358,6 @@
     settings.lang = e.target.value; saveSettings();
     applyI18n(); renderSidebar(); renderMessages(); refreshBanner();
   });
-  $("overlay").addEventListener("click", (e) => { if (e.target.id === "overlay") closeModal(); });
   elSend.addEventListener("click", send);
   elInput.addEventListener("input", autosize);
   elInput.addEventListener("keydown", (e) => {
